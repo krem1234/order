@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BASE - Ταμείο (Cloud/Firebase)</title>
+  <link rel="stylesheet" href="style.css">
+  <style>html { visibility: hidden; }</style>
+</head>
+<body>
+  <div class="header-bar">
+    <h2>🖥️ Κεντρικό Ταμείο</h2>
+    <div class="header-actions">
+      <button class="btn btn-ghost" onclick="window.openReportModal()">📊 Αναφορά / Εκτύπωση Τζίρου</button>
+      <a href="pda.html" class="btn btn-warning" data-admin-only>📱 PDA</a>
+    </div>
+  </div>
+
+  <!-- ΕΝΕΡΓΕΣ ΠΑΡΑΓΓΕΛΙΕΣ -->
+  <div class="card">
+    <div class="row-between" style="margin-bottom:14px; padding-bottom:12px; border-bottom:1px solid var(--border);">
+      <h3 class="card-title" style="margin:0;">📋 Ενεργές Παραγγελίες</h3>
+      <span id="orders-count" class="badge">0</span>
+    </div>
+    <div id="orders-container"></div>
+  </div>
+
+  <!-- MODAL ΑΝΑΦΟΡΑΣ & ΕΚΤΥΠΩΣΗΣ ΣΥΝΟΛΩΝ -->
+  <div id="report-modal" class="modal">
+    <div class="modal-content">
+      <h3 class="modal-title">📊 Αναφορά Τζίρου</h3>
+      
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:12px;">
+        <div>
+          <label class="field-label">Από</label>
+          <input type="date" id="rep-date-from">
+        </div>
+        <div>
+          <label class="field-label">Έως</label>
+          <input type="date" id="rep-date-to">
+        </div>
+      </div>
+
+      <div style="margin-bottom: 16px;">
+        <label class="field-label">Πελάτης / Τραπέζι</label>
+        <select id="rep-customer-select">
+          <option value="ALL">-- Όλοι οι Πελάτες / Τραπέζια --</option>
+        </select>
+      </div>
+
+      <div class="report-summary">
+        <div class="line">
+          <span class="muted">Πλήθος Παραγγελιών</span>
+          <strong id="rep-preview-count">0</strong>
+        </div>
+        <div class="line" style="align-items:center;">
+          <span class="muted">Συνολικός Τζίρος</span>
+          <strong id="rep-preview-revenue" class="big">0.00€</strong>
+        </div>
+      </div>
+
+      <div class="modal-actions" style="margin-top:0;">
+        <button class="btn btn-ghost btn-lg" onclick="window.closeReportModal()">Κλείσιμο</button>
+        <button class="btn btn-success btn-lg" onclick="window.printReport()">🖨️ Εκτύπωση</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="receipt-print-area"></div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+    import { requireRole } from "./auth.js";
+    import { 
+      getFirestore, 
+      collection, 
+      doc, 
+      updateDoc, 
+      onSnapshot, 
+      getDoc 
+    } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyCW2zewf0DdRv-E_lQb9dznRwocu_qa38o",
+      authDomain: "order-6014b.firebaseapp.com",
+      projectId: "order-6014b",
+      storageBucket: "order-6014b.firebasestorage.app",
+      messagingSenderId: "656642189339",
+      appId: "1:656642189339:web:bb8bf9745f8e44c276b0be",
+      measurementId: "G-N16YS8TW0S"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+
+    // Μόνο συνδεδεμένοι χρήστες με σωστό ρόλο
+    await requireRole(['base', 'admin']);
+
+    let allOrders = [];
+    let customersList = [];
+
+    // Φόρτωση ρυθμίσεων για τη λίστα πελατών
+    onSnapshot(doc(db, "pos_settings", "general"), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        if(data.customers) customersList = data.customers;
+      }
+    });
+
+    // Real-time listener για τις παραγγελίες
+    onSnapshot(collection(db, "pos_orders"), (snapshot) => {
+      allOrders = [];
+      snapshot.forEach((docSnap) => {
+        const data = docSnap.data();
+        allOrders.push({ ...data, firestoreId: docSnap.id });
+      });
+      allOrders.sort((a, b) => b.id - a.id);
+      window.renderActiveOrders();
+    }, (error) => {
+      console.error("Error loading orders in Base:", error);
+    });
+
+    // Εμφάνιση ενεργών παραγγελιών (όσες ΔΕΝ έχουν αρχειοθετηθεί με status 'Ολοκληρωμένη')
+    window.renderActiveOrders = function() {
+      const container = document.getElementById('orders-container');
+      if(!container) return;
+      container.innerHTML = '';
+
+      const activeOrders = allOrders.filter(o => o.status !== 'Ολοκληρωμένη');
+      document.getElementById('orders-count').innerText = activeOrders.length;
+
+      if (activeOrders.length === 0) {
+        container.innerHTML = '<div class="empty"><span class="empty-icon">🧾</span>Δεν υπάρχουν ενεργές παραγγελίες.</div>';
+        return;
+      }
+
+      activeOrders.forEach(o => {
+        let itemsHtml = (o.items || []).map(i => {
+          let modsStr = i.mods && i.mods.length ? `<span class="mods">${i.mods.join(', ')}</span>` : '';
+          return `<li>
+            <span>${i.name} <span class="vat">(ΦΠΑ ${i.vat || 13}%)</span>${modsStr}</span>
+            <strong>${Number(i.price || 0).toFixed(2)}€</strong>
+          </li>`;
+        }).join('');
+
+        let orderDateStr = o.timestamp || '';
+
+        container.innerHTML += `
+          <div class="order-card">
+            <div class="order-head">
+              <h4 class="order-title">#${o.id.toString().slice(-4)} · <span>${o.customer}</span></h4>
+              <span class="badge">🕒 ${orderDateStr}</span>
+            </div>
+            <ul class="order-items">${itemsHtml}</ul>
+            <div class="order-foot">
+              <span class="order-total">Σύνολο: ${Number(o.total || 0).toFixed(2)}€</span>
+              <div class="order-actions">
+                <button class="btn btn-ghost" onclick="window.printThermal('${o.firestoreId}')">🖨️ Εκτύπωση</button>
+                <button class="btn btn-success" onclick="window.finishOrder('${o.firestoreId}')">✅ Τέλος</button>
+              </div>
+            </div>
+          </div>
+        `;
+      });
+    };
+
+    // Κουμπί Τέλος: Αρχειοθέτηση (αλλάζει status σε 'Ολοκληρωμένη' χωρίς να διαγραφεί)
+    window.finishOrder = async function(firestoreId) {
+      if (confirm("Να σημειωθεί η παραγγελία ως ολοκληρωμένη (τέλος);")) {
+        try {
+          await updateDoc(doc(db, "pos_orders", firestoreId), {
+            status: 'Ολοκληρωμένη'
+          });
+        } catch (e) {
+          console.error("Error finishing order: ", e);
+        }
+      }
+    };
+
+    // Διαχείριση Modal Αναφοράς
+    window.openReportModal = function() {
+      const selectEl = document.getElementById('rep-customer-select');
+      selectEl.innerHTML = '<option value="ALL">-- Όλοι οι Πελάτες / Τραπέζια --</option>' + 
+        customersList.map(c => `<option value="${c}">${c}</option>`).join('');
+
+      document.getElementById('report-modal').style.display = 'flex';
+      window.updateReportPreview();
+    };
+
+    window.closeReportModal = function() {
+      document.getElementById('report-modal').style.display = 'none';
+    };
+
+    window.updateReportPreview = function() {
+      // Υπολογισμός στατιστικών σε πραγματικό χρόνο για το modal
+      const data = window.getFilteredReportData();
+      document.getElementById('rep-preview-revenue').innerText = data.totalRevenue.toFixed(2) + '€';
+      document.getElementById('rep-preview-count').innerText = data.count;
+    };
+
+    window.getFilteredReportData = function() {
+      const dateFromEl = document.getElementById('rep-date-from');
+      const dateToEl = document.getElementById('rep-date-to');
+      const custSelectEl = document.getElementById('rep-customer-select');
+
+      const dateFrom = dateFromEl && dateFromEl.value ? new Date(dateFromEl.value + 'T00:00:00') : null;
+      const dateTo = dateToEl && dateToEl.value ? new Date(dateToEl.value + 'T23:59:59') : null;
+      const selectedCustomer = custSelectEl ? custSelectEl.value : 'ALL';
+
+      let totalRevenue = 0;
+      let count = 0;
+      let itemsBreakdown = {};
+
+      allOrders.forEach(o => {
+        let orderDate = new Date(o.id);
+        if (isNaN(orderDate.getTime())) orderDate = new Date();
+
+        if (dateFrom && orderDate < dateFrom) return;
+        if (dateTo && orderDate > dateTo) return;
+        if (selectedCustomer !== 'ALL' && o.customer !== selectedCustomer) return;
+
+        totalRevenue += Number(o.total || 0);
+        count += 1;
+
+        // Ανάλυση ανά προϊόν για την αναφορά
+        if (o.items) {
+          o.items.forEach(i => {
+            if (!itemsBreakdown[i.name]) {
+              itemsBreakdown[i.name] = { qty: 0, revenue: 0 };
+            }
+            itemsBreakdown[i.name].qty += 1;
+            itemsBreakdown[i.name].revenue += Number(i.price || 0);
+          });
+        }
+      });
+
+      return { totalRevenue, count, itemsBreakdown, dateFrom: dateFromEl.value, dateTo: dateToEl.value, customer: selectedCustomer };
+    };
+
+    // Listeners για αυτόματη ενημέρωση όταν αλλάζουν τα πεδία στο modal
+    document.addEventListener('DOMContentLoaded', () => {
+      document.getElementById('rep-date-from')?.addEventListener('change', window.updateReportPreview);
+      document.getElementById('rep-date-to')?.addEventListener('change', window.updateReportPreview);
+      document.getElementById('rep-customer-select')?.addEventListener('change', window.updateReportPreview);
+    });
+
+    window.printReport = async function() {
+      const report = window.getFilteredReportData();
+
+      let busName = "ΕΠΙΧΕΙΡΗΣΗ POS";
+      let busVat = "000000000";
+      try {
+        const settingsDoc = await getDoc(doc(db, "pos_settings", "general"));
+        if (settingsDoc.exists()) {
+          busName = settingsDoc.data().bus_name || busName;
+          busVat = settingsDoc.data().bus_vat || busVat;
+        }
+      } catch(e) {}
+
+      let itemsHtml = Object.keys(report.itemsBreakdown).map(name => {
+        let item = report.itemsBreakdown[name];
+        return `
+          <div style="display: flex; justify-content: space-between; margin-bottom: 3px;">
+            <span>${name} (x${item.qty})</span>
+            <span>${item.revenue.toFixed(2)}€</span>
+          </div>
+        `;
+      }).join('');
+
+      const printArea = document.getElementById('receipt-print-area');
+      if(printArea) {
+        printArea.innerHTML = `
+          <div style="font-family: 'Courier New', Courier, monospace; width: 72mm; margin: 0 auto; padding: 5px; color: #000; font-size: 12px; line-height: 1.3;">
+            <div style="text-align: center; border-bottom: 1px dashed #000; padding-bottom: 6px; margin-bottom: 8px;">
+              <h2 style="margin: 0 0 2px 0; font-size: 15px; font-weight: bold; text-transform: uppercase;">${busName}</h2>
+              <div style="font-size: 11px;">ΑΦΜ: ${busVat}</div>
+              <div style="font-size: 12px; font-weight: bold; margin-top: 4px;">ΑΝΑΦΟΡΑ ΤΖΙΡΟΥ</div>
+            </div>
+
+            <div style="margin-bottom: 8px; border-bottom: 1px dashed #000; padding-bottom: 6px; font-size: 11px;">
+              <div>Από: ${report.date_from || report.dateFrom || 'Αρχή'}</div>
+              <div>Έως: ${report.date_to || report.dateTo || 'Σήμερα'}</div>
+              <div>Πελάτης: ${report.customer === 'ALL' ? 'Όλοι' : report.customer}</div>
+            </div>
+
+            <div style="border-bottom: 1px dashed #000; padding-bottom: 6px; margin-bottom: 8px;">
+              <div style="font-weight: bold; margin-bottom: 4px;">Ανάλυση Προϊόντων:</div>
+              ${itemsHtml || '<i>Καμία πώληση</i>'}
+            </div>
+
+            <div style="border-bottom: 1px dashed #000; padding-bottom: 6px; margin-bottom: 8px; font-size: 13px;">
+              <div style="display: flex; justify-content: space-between;">
+                <span>Πλήθος Παραγγελιών:</span>
+                <strong>${report.count}</strong>
+              </div>
+            </div>
+
+            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 15px; font-weight: bold;">
+              <span>ΣΥΝΟΛΟ ΤΖΙΡΟΥ:</span>
+              <span>${report.totalRevenue.toFixed(2)}€</span>
+            </div>
+          </div>
+        `;
+        window.print();
+      }
+      window.closeReportModal();
+    };
+
+    window.printThermal = async function(firestoreId) {
+      const o = allOrders.find(item => item.firestoreId === firestoreId);
+      if (!o) return;
+
+      let busName = "ΕΠΙΧΕΙΡΗΣΗ POS";
+      let busVat = "000000000";
+      try {
+        const settingsDoc = await getDoc(doc(db, "pos_settings", "general"));
+        if (settingsDoc.exists()) {
+          busName = settingsDoc.data().bus_name || busName;
+          busVat = settingsDoc.data().bus_vat || busVat;
+        }
+      } catch(e) {}
+
+      const printArea = document.getElementById('receipt-print-area');
+      if(printArea) {
+        let itemsHtml = o.items.map(i => {
+          let modsHtml = (i.mods && i.mods.length) 
+            ? `<div style="font-size: 11px; color: #444; padding-left: 8px;">↳ ${i.mods.join(', ')}</div>` 
+            : '';
+          
+          return `
+            <div style="margin-bottom: 5px;">
+              <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                <span style="font-weight: bold; flex: 1; padding-right: 5px;">${i.name}</span>
+                <span style="font-weight: bold; text-align: right; white-space: nowrap;">${Number(i.price || 0).toFixed(2)}€</span>
+              </div>
+              ${modsHtml}
+            </div>
+          `;
+        }).join('');
+
+        printArea.innerHTML = `
+          <div style="font-family: 'Courier New', Courier, monospace; width: 72mm; margin: 0 auto; padding: 5px; color: #000; font-size: 13px; line-height: 1.3;">
+            <div style="text-align: center; border-bottom: 1px dashed #000; padding-bottom: 6px; margin-bottom: 8px;">
+              <h2 style="margin: 0 0 2px 0; font-size: 16px; font-weight: bold; text-transform: uppercase;">${busName}</h2>
+              <div style="font-size: 11px;">ΑΦΜ: ${busVat}</div>
+            </div>
+
+            <div style="margin-bottom: 8px; border-bottom: 1px dashed #000; padding-bottom: 6px; font-size: 12px;">
+              <div style="display: flex; justify-content: space-between;">
+                <span>Παραγγελία:</span>
+                <strong>#${o.id.toString().slice(-4)}</strong>
+              </div>
+              <div style="display: flex; justify-content: space-between;">
+                <span>Πελάτης/Τραπέζι:</span>
+                <strong>${o.customer}</strong>
+              </div>
+            </div>
+
+            <div style="border-bottom: 1px dashed #000; padding-bottom: 6px; margin-bottom: 8px;">
+              ${itemsHtml}
+            </div>
+
+            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 15px; font-weight: bold; margin-top: 4px;">
+              <span>ΣΥΝΟΛΟ:</span>
+              <span style="font-size: 17px;">${Number(o.total || 0).toFixed(2)}€</span>
+            </div>
+
+            <div style="text-align: center; margin-top: 15px; font-size: 11px; border-top: 1px dashed #000; padding-top: 6px;">
+              Ευχαριστούμε για την προτίμηση!
+            </div>
+          </div>
+        `;
+        window.print();
+      }
+    };
+  </script>
+</body>
+</html>

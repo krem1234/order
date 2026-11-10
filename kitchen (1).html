@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kitchen Display - Οθόνη Κουζίνας (Cloud)</title>
+  <link rel="stylesheet" href="style.css">
+  <style>html { visibility: hidden; }</style>
+</head>
+<body>
+  <div class="header-bar">
+    <h2>🍳 Οθόνη Κουζίνας</h2>
+    <div class="header-actions">
+      <div id="kitchen-summary" class="kitchen-summary"></div>
+      <a href="admin.html" class="btn btn-ghost" data-admin-only>⚙️ Διαχειριστικό</a>
+    </div>
+  </div>
+
+  <div id="kitchen-content"></div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+    import { requireRole } from "./auth.js";
+    import { getFirestore, collection, getDocs, addDoc, deleteDoc, doc, updateDoc, onSnapshot, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyCW2zewf0DdRv-E_lQb9dznRwocu_qa38o",
+      authDomain: "order-6014b.firebaseapp.com",
+      projectId: "order-6014b",
+      storageBucket: "order-6014b.firebasestorage.app",
+      messagingSenderId: "656642189339",
+      appId: "1:656642189339:web:bb8bf9745f8e44c276b0be",
+      measurementId: "G-N16YS8TW0S"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+
+    // Μόνο συνδεδεμένοι χρήστες με σωστό ρόλο
+    await requireRole(['kds', 'admin']);
+
+    let orders = [];
+    let kitchenEnabled = true;
+
+    onSnapshot(doc(db, "pos_settings", "general"), (docSnap) => {
+      if (docSnap.exists()) {
+        kitchenEnabled = docSnap.data().kitchen_enabled !== false;
+      }
+      checkKitchenStatus();
+    });
+
+    onSnapshot(collection(db, "pos_orders"), (snapshot) => {
+      orders = [];
+      snapshot.forEach((docSnap) => {
+        orders.push({ ...docSnap.data(), firestoreId: docSnap.id });
+      });
+      orders.sort((a, b) => b.id - a.id);
+      checkKitchenStatus();
+    });
+
+    window.checkKitchenStatus = function() {
+      const container = document.getElementById('kitchen-content');
+      const summary = document.getElementById('kitchen-summary');
+
+      if (!kitchenEnabled) {
+        summary.innerHTML = '';
+        container.innerHTML = `
+          <div class="disabled-banner">
+            <h2>⚠️ Η Οθόνη Κουζίνας είναι απενεργοποιημένη</h2>
+          </div>
+        `;
+        return;
+      }
+
+      const readyCount = orders.filter(o => o.kitchenStatus === 'Έτοιμο').length;
+      const pendingCount = orders.length - readyCount;
+      summary.innerHTML = `
+        <span class="badge badge-warning">⏳ Σε εξέλιξη: ${pendingCount}</span>
+        <span class="badge badge-success">✅ Έτοιμα: ${readyCount}</span>
+      `;
+
+      if (orders.length === 0) {
+        container.innerHTML = '<div class="card"><div class="empty"><span class="empty-icon">🍽️</span>Δεν υπάρχουν ενεργές παραγγελίες.</div></div>';
+        return;
+      }
+
+      let html = '<div class="kitchen-grid">';
+      orders.forEach(o => {
+        let itemsHtml = (o.items || []).map(i => {
+          let modsStr = i.mods && i.mods.length ? `<span class="mods">➜ ${i.mods.join(', ')}</span>` : '';
+          return `<li><strong>${i.name}</strong>${modsStr}</li>`;
+        }).join('');
+
+        let isReady = o.kitchenStatus === 'Έτοιμο';
+        html += `
+          <div class="kitchen-card ${isReady ? 'ready' : ''}">
+            <div>
+              <div class="kitchen-head">
+                <h3>${o.customer}</h3>
+                <span class="kitchen-time">🕒 ${o.timestamp}</span>
+              </div>
+              <ul class="kitchen-items">${itemsHtml}</ul>
+            </div>
+            <button class="btn btn-lg btn-block ${isReady ? 'btn-warning' : 'btn-success'}" onclick="toggleStatus('${o.firestoreId}', '${o.kitchenStatus}')">
+              ${isReady ? '🔄 Επαναφορά' : '✅ Σήμανση ως Έτοιμο'}
+            </button>
+          </div>
+        `;
+      });
+      html += '</div>';
+      container.innerHTML = html;
+    };
+
+    window.toggleStatus = async function(firestoreId, currentStatus) {
+      const newStatus = (currentStatus === 'Έτοιμο') ? 'Σε εξέλιξη' : 'Έτοιμο';
+      try {
+        await updateDoc(doc(db, "pos_orders", firestoreId), {
+          kitchenStatus: newStatus
+        });
+      } catch (e) {
+        console.error("Error updating status: ", e);
+      }
+    };
+  </script>
+</body>
+</html>
