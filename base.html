@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BASE - Ταμείο (Cloud/Firebase)</title>
+  <link rel="stylesheet" href="style.css">
+  <style>html { visibility: hidden; }</style>
+</head>
+<body>
+  <div class="header-bar">
+    <h2>🖥️ Κεντρικό Ταμείο</h2>
+    <div class="header-actions">
+      <button class="btn btn-ghost" onclick="window.openHistoryModal()">📜 Ιστορικό</button>
+      <button class="btn btn-ghost" onclick="window.openReportModal()">📊 Αναφορά / Εκτύπωση Τζίρου</button>
+      <a href="pda.html" class="btn btn-warning" data-admin-only>📱 PDA</a>
+    </div>
+  </div>
+
+  <!-- ΕΝΕΡΓΕΣ ΠΑΡΑΓΓΕΛΙΕΣ -->
+  <div class="card">
+    <div class="row-between" style="margin-bottom:14px; padding-bottom:12px; border-bottom:1px solid var(--border);">
+      <h3 class="card-title" style="margin:0;">📋 Ενεργές Παραγγελίες</h3>
+      <span id="orders-count" class="badge">0</span>
+    </div>
+    <div id="orders-container"></div>
+  </div>
+
+  <!-- MODAL ΑΝΑΦΟΡΑΣ & ΕΚΤΥΠΩΣΗΣ ΣΥΝΟΛΩΝ -->
+  <div id="report-modal" class="modal">
+    <div class="modal-content">
+      <h3 class="modal-title">📊 Αναφορά Τζίρου</h3>
+
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:12px;">
+        <div>
+          <label class="field-label">Από</label>
+          <input type="date" id="rep-date-from" onchange="window.updateReportPreview()">
+        </div>
+        <div>
+          <label class="field-label">Έως</label>
+          <input type="date" id="rep-date-to" onchange="window.updateReportPreview()">
+        </div>
+      </div>
+
+      <div style="margin-bottom: 12px;">
+        <label class="field-label">Πελάτης / Τραπέζι</label>
+        <select id="rep-customer-select" onchange="window.updateReportPreview()">
+          <option value="ALL">-- Όλοι οι Πελάτες / Τραπέζια --</option>
+        </select>
+      </div>
+
+      <div style="margin-bottom: 16px;">
+        <label class="field-label">PDA (χρήστης)</label>
+        <select id="rep-pda-select" onchange="window.updateReportPreview()">
+          <option value="ALL">-- Όλα τα PDA --</option>
+        </select>
+      </div>
+
+      <div class="report-summary">
+        <div class="line">
+          <span class="muted">Πλήθος Παραγγελιών</span>
+          <strong id="rep-preview-count">0</strong>
+        </div>
+        <div class="line" style="align-items:center;">
+          <span class="muted">Συνολικός Τζίρος</span>
+          <strong id="rep-preview-revenue" class="big">0.00€</strong>
+        </div>
+        <div class="pda-lines">
+          <div class="muted" style="font-size:0.8rem; font-weight:700; margin-bottom:4px;">ΣΥΝΟΛΑ ΑΝΑ PDA</div>
+          <div id="rep-preview-pda"></div>
+        </div>
+      </div>
+
+      <div class="modal-actions" style="margin-top:0;">
+        <button class="btn btn-ghost btn-lg" onclick="window.closeReportModal()">Κλείσιμο</button>
+        <button class="btn btn-success btn-lg" onclick="window.printReport()">🖨️ Εκτύπωση</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL ΙΣΤΟΡΙΚΟΥ ΠΑΡΑΓΓΕΛΙΩΝ -->
+  <div id="history-modal" class="modal">
+    <div class="modal-content modal-wide">
+      <h3 class="modal-title">📜 Ιστορικό Παραγγελιών</h3>
+
+      <div class="hist-filters">
+        <div>
+          <label class="field-label">Από</label>
+          <input type="date" id="hist-date-from" onchange="window.renderHistory()">
+        </div>
+        <div>
+          <label class="field-label">Έως</label>
+          <input type="date" id="hist-date-to" onchange="window.renderHistory()">
+        </div>
+        <div>
+          <label class="field-label">Πελάτης / Τραπέζι</label>
+          <select id="hist-customer" onchange="window.renderHistory()"></select>
+        </div>
+        <div>
+          <label class="field-label">PDA</label>
+          <select id="hist-pda" onchange="window.renderHistory()"></select>
+        </div>
+        <div>
+          <label class="field-label">Κατάσταση</label>
+          <select id="hist-status" onchange="window.renderHistory()">
+            <option value="ALL">Όλες</option>
+            <option value="active">Ενεργές</option>
+            <option value="done">Ολοκληρωμένες</option>
+          </select>
+        </div>
+        <div>
+          <label class="field-label">Αναζήτηση</label>
+          <input type="text" id="hist-search" placeholder="Αρ. παραγγελίας, προϊόν..." oninput="window.renderHistory()" autocomplete="off">
+        </div>
+      </div>
+
+      <div class="hist-summary">
+        <span>Παραγγελίες: <span id="hist-count">0</span></span>
+        <span>Σύνολο: <span id="hist-total">0.00€</span></span>
+      </div>
+
+      <div id="hist-list" class="hist-list"></div>
+
+      <div class="modal-actions">
+        <button class="btn btn-ghost btn-lg" onclick="window.closeHistoryModal()">Κλείσιμο</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="receipt-print-area"></div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+    import { requireRole } from "./auth.js";
+    import {
+      getFirestore,
+      collection,
+      doc,
+      updateDoc,
+      onSnapshot
+    } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyCW2zewf0DdRv-E_lQb9dznRwocu_qa38o",
+      authDomain: "order-6014b.firebaseapp.com",
+      projectId: "order-6014b",
+      storageBucket: "order-6014b.firebasestorage.app",
+      messagingSenderId: "656642189339",
+      appId: "1:656642189339:web:bb8bf9745f8e44c276b0be",
+      measurementId: "G-N16YS8TW0S"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+
+    // Μόνο συνδεδεμένοι χρήστες με σωστό ρόλο
+    const me = await requireRole(['base', 'admin']);
+
+    let allOrders = [];
+    let customersList = [];
+    let busName = "ΕΠΙΧΕΙΡΗΣΗ POS";
+    let busVat = "000000000";
+    // Τρόπος εκτύπωσης παραγγελίας (ορίζεται από τον διαχειριστή ανά Base): με ή χωρίς τιμές
+    let printPrices = me.printMode !== 'noprices';
+    const UNKNOWN_PDA = 'Άγνωστο';
+
+    // ---------- Βοηθητικά ----------
+    const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    const norm = (s) => String(s ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/ς/g, 'σ').toLowerCase();
+    const money = (n) => Number(n || 0).toFixed(2) + '€';
+    const pdaName = (o) => o.pdaName || UNKNOWN_PDA;
+    const orderDate = (o) => { const d = new Date(o.id); return isNaN(d.getTime()) ? null : d; };
+    const fmtDateTime = (o) => {
+      const d = orderDate(o);
+      return d ? d.toLocaleString('el-GR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : (o.timestamp || '');
+    };
+    const orderNo = (o) => String(o.id ?? '').slice(-4);
+    const isDone = (o) => o.status === 'Ολοκληρωμένη';
+
+    // ---------- Listeners ----------
+    onSnapshot(doc(db, "pos_settings", "general"), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        if (data.customers) customersList = data.customers;
+        busName = data.bus_name || busName;
+        busVat = data.bus_vat || busVat;
+      }
+    });
+
+    // Το προφίλ του ίδιου του χρήστη (ο διαχειριστής μπορεί να αλλάξει τον τρόπο εκτύπωσης ζωντανά)
+    onSnapshot(doc(db, "pos_users", me.uid), (snap) => {
+      if (snap.exists()) printPrices = snap.data().printMode !== 'noprices';
+    }, (e) => console.warn(e));
+
+    onSnapshot(collection(db, "pos_orders"), (snapshot) => {
+      allOrders = [];
+      snapshot.forEach((docSnap) => {
+        allOrders.push({ ...docSnap.data(), firestoreId: docSnap.id });
+      });
+      allOrders.sort((a, b) => b.id - a.id);
+      window.renderActiveOrders();
+      if (document.getElementById('history-modal').style.display === 'flex') window.renderHistory();
+    }, (error) => {
+      console.error("Error loading orders in Base:", error);
+    });
+
+    // ---------- Ενεργές παραγγελίες ----------
+    window.renderActiveOrders = function() {
+      const container = document.getElementById('orders-container');
+      if (!container) return;
+      container.innerHTML = '';
+
+      const activeOrders = allOrders.filter(o => !isDone(o));
+      document.getElementById('orders-count').innerText = activeOrders.length;
+
+      if (activeOrders.length === 0) {
+        container.innerHTML = '<div class="empty"><span class="empty-icon">🧾</span>Δεν υπάρχουν ενεργές παραγγελίες.</div>';
+        return;
+      }
+
+      container.innerHTML = activeOrders.map(o => `
+        <div class="order-card">
+          <div class="order-head">
+            <h4 class="order-title">#${esc(orderNo(o))} · <span>${esc(o.customer)}</span></h4>
+            <span class="badge">🕒 ${esc(o.timestamp || '')}${o.pdaName ? ' · 👤 ' + esc(o.pdaName) : ''}</span>
+          </div>
+          <ul class="order-items">${itemsListHtml(o)}</ul>
+          <div class="order-foot">
+            <span class="order-total">Σύνολο: ${money(o.total)}</span>
+            <div class="order-actions">
+              <button class="btn btn-ghost" onclick="window.printThermal('${o.firestoreId}')">🖨️ Εκτύπωση</button>
+              <button class="btn btn-success" onclick="window.finishOrder('${o.firestoreId}')">✅ Τέλος</button>
+            </div>
+          </div>
+        </div>
+      `).join('');
+    };
+
+    function itemsListHtml(o) {
+      return (o.items || []).map(i => {
+        const modsStr = i.mods && i.mods.length ? `<span class="mods">${esc(i.mods.join(', '))}</span>` : '';
+        return `<li>
+          <span>${esc(i.name)} <span class="vat">(ΦΠΑ ${i.vat || 13}%)</span>${modsStr}</span>
+          <strong>${money(i.price)}</strong>
+        </li>`;
+      }).join('');
+    }
+
+    // Κουμπί Τέλος: Αρχειοθέτηση (αλλάζει status σε 'Ολοκληρωμένη' χωρίς να διαγραφεί)
+    window.finishOrder = async function(firestoreId) {
+      if (confirm("Να σημειωθεί η παραγγελία ως ολοκληρωμένη (τέλος);")) {
+        try {
+          await updateDoc(doc(db, "pos_orders", firestoreId), { status: 'Ολοκληρωμένη' });
+        } catch (e) {
+          console.error("Error finishing order: ", e);
+        }
+      }
+    };
+
+    // ---------- Αναφορά τζίρου ----------
+    function fillSelect(id, firstLabel, values, keep) {
+      const el = document.getElementById(id);
+      const prev = keep ? el.value : 'ALL';
+      el.innerHTML = `<option value="ALL">${firstLabel}</option>` + values.map(v => `<option value="${esc(v)}">${esc(v)}</option>`).join('');
+      el.value = values.includes(prev) || prev === 'ALL' ? prev : 'ALL';
+    }
+
+    function pdaNames() {
+      const set = new Set(allOrders.map(pdaName));
+      return Array.from(set).sort((a, b) => a.localeCompare(b, 'el'));
+    }
+
+    function customerNames() {
+      const set = new Set([...customersList, ...allOrders.map(o => o.customer).filter(Boolean)]);
+      return Array.from(set).sort((a, b) => a.localeCompare(b, 'el'));
+    }
+
+    window.openReportModal = function() {
+      fillSelect('rep-customer-select', '-- Όλοι οι Πελάτες / Τραπέζια --', customersList, false);
+      fillSelect('rep-pda-select', '-- Όλα τα PDA --', pdaNames(), false);
+      document.getElementById('report-modal').style.display = 'flex';
+      window.updateReportPreview();
+    };
+
+    window.closeReportModal = function() {
+      document.getElementById('report-modal').style.display = 'none';
+    };
+
+    window.updateReportPreview = function() {
+      const data = window.getFilteredReportData();
+      document.getElementById('rep-preview-revenue').innerText = money(data.totalRevenue);
+      document.getElementById('rep-preview-count').innerText = data.count;
+      const rows = Object.entries(data.pdaBreakdown).sort((a, b) => b[1].revenue - a[1].revenue);
+      document.getElementById('rep-preview-pda').innerHTML = rows.length
+        ? rows.map(([name, v]) => `<div class="line"><span>👤 ${esc(name)} <span class="muted">(${v.count} παρ.)</span></span><strong>${money(v.revenue)}</strong></div>`).join('')
+        : '<span class="muted" style="font-size:0.88rem;">Καμία παραγγελία</span>';
+    };
+
+    window.getFilteredReportData = function() {
+      const dateFromEl = document.getElementById('rep-date-from');
+      const dateToEl = document.getElementById('rep-date-to');
+      const dateFrom = dateFromEl.value ? new Date(dateFromEl.value + 'T00:00:00') : null;
+      const dateTo = dateToEl.value ? new Date(dateToEl.value + 'T23:59:59') : null;
+      const selectedCustomer = document.getElementById('rep-customer-select').value;
+      const selectedPda = document.getElementById('rep-pda-select').value;
+
+      let totalRevenue = 0;
+      let count = 0;
+      const itemsBreakdown = {};
+      const pdaBreakdown = {};
+
+      allOrders.forEach(o => {
+        const d = orderDate(o) || new Date();
+        if (dateFrom && d < dateFrom) return;
+        if (dateTo && d > dateTo) return;
+        if (selectedCustomer !== 'ALL' && o.customer !== selectedCustomer) return;
+        if (selectedPda !== 'ALL' && pdaName(o) !== selectedPda) return;
+
+        const total = Number(o.total || 0);
+        totalRevenue += total;
+        count += 1;
+
+        const p = pdaName(o);
+        if (!pdaBreakdown[p]) pdaBreakdown[p] = { count: 0, revenue: 0 };
+        pdaBreakdown[p].count += 1;
+        pdaBreakdown[p].revenue += total;
+
+        (o.items || []).forEach(i => {
+          if (!itemsBreakdown[i.name]) itemsBreakdown[i.name] = { qty: 0, revenue: 0 };
+          itemsBreakdown[i.name].qty += 1;
+          itemsBreakdown[i.name].revenue += Number(i.price || 0);
+        });
+      });
+
+      return {
+        totalRevenue, count, itemsBreakdown, pdaBreakdown,
+        dateFrom: dateFromEl.value, dateTo: dateToEl.value,
+        customer: selectedCustomer, pda: selectedPda
+      };
+    };
+
+    window.printReport = function() {
+      const report = window.getFilteredReportData();
+
+      const itemsHtml = Object.keys(report.itemsBreakdown).map(name => {
+        const item = report.itemsBreakdown[name];
+        return `
+          <div style="display: flex; justify-content: space-between; margin-bottom: 3px;">
+            <span>${esc(name)} (x${item.qty})</span>
+            <span>${money(item.revenue)}</span>
+          </div>`;
+      }).join('');
+
+      const pdaHtml = Object.entries(report.pdaBreakdown).sort((a, b) => b[1].revenue - a[1].revenue).map(([name, v]) => `
+          <div style="display: flex; justify-content: space-between; margin-bottom: 3px;">
+            <span>${esc(name)} (${v.count} παρ.)</span>
+            <span>${money(v.revenue)}</span>
+          </div>`).join('');
+
+      const printArea = document.getElementById('receipt-print-area');
+      printArea.innerHTML = `
+        <div style="font-family: 'Courier New', Courier, monospace; width: 72mm; margin: 0 auto; padding: 5px; color: #000; font-size: 12px; line-height: 1.3;">
+          <div style="text-align: center; border-bottom: 1px dashed #000; padding-bottom: 6px; margin-bottom: 8px;">
+            <h2 style="margin: 0 0 2px 0; font-size: 15px; font-weight: bold; text-transform: uppercase;">${esc(busName)}</h2>
+            <div style="font-size: 11px;">ΑΦΜ: ${esc(busVat)}</div>
+            <div style="font-size: 12px; font-weight: bold; margin-top: 4px;">ΑΝΑΦΟΡΑ ΤΖΙΡΟΥ</div>
+          </div>
+
+          <div style="margin-bottom: 8px; border-bottom: 1px dashed #000; padding-bottom: 6px; font-size: 11px;">
+            <div>Από: ${esc(report.dateFrom || 'Αρχή')}</div>
+            <div>Έως: ${esc(report.dateTo || 'Σήμερα')}</div>
+            <div>Πελάτης: ${report.customer === 'ALL' ? 'Όλοι' : esc(report.customer)}</div>
+            <div>PDA: ${report.pda === 'ALL' ? 'Όλα' : esc(report.pda)}</div>
+          </div>
+
+          <div style="border-bottom: 1px dashed #000; padding-bottom: 6px; margin-bottom: 8px;">
+            <div style="font-weight: bold; margin-bottom: 4px;">Ανάλυση Προϊόντων:</div>
+            ${itemsHtml || '<i>Καμία πώληση</i>'}
+          </div>
+
+          <div style="border-bottom: 1px dashed #000; padding-bottom: 6px; margin-bottom: 8px;">
+            <div style="font-weight: bold; margin-bottom: 4px;">Σύνολα ανά PDA:</div>
+            ${pdaHtml || '<i>Καμία παραγγελία</i>'}
+          </div>
+
+          <div style="border-bottom: 1px dashed #000; padding-bottom: 6px; margin-bottom: 8px; font-size: 13px;">
+            <div style="display: flex; justify-content: space-between;">
+              <span>Πλήθος Παραγγελιών:</span>
+              <strong>${report.count}</strong>
+            </div>
+          </div>
+
+          <div style="display: flex; justify-content: space-between; align-items: center; font-size: 15px; font-weight: bold;">
+            <span>ΣΥΝΟΛΟ ΤΖΙΡΟΥ:</span>
+            <span>${money(report.totalRevenue)}</span>
+          </div>
+        </div>
+      `;
+      window.print();
+      window.closeReportModal();
+    };
+
+    // ---------- Εκτύπωση παραγγελίας ----------
+    // isCopy = true όταν γίνεται επανεκτύπωση από το ιστορικό
+    window.printThermal = function(firestoreId, isCopy) {
+      const o = allOrders.find(item => item.firestoreId === firestoreId);
+      if (!o) return;
+
+      const items = o.items || [];
+      const itemsHtml = items.map(i => {
+        const modsHtml = (i.mods && i.mods.length)
+          ? `<div style="font-size: 11px; color: #444; padding-left: 8px;">↳ ${esc(i.mods.join(', '))}</div>`
+          : '';
+        const priceHtml = printPrices
+          ? `<span style="font-weight: bold; text-align: right; white-space: nowrap;">${money(i.price)}</span>`
+          : '';
+        return `
+          <div style="margin-bottom: 5px;">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+              <span style="font-weight: bold; flex: 1; padding-right: 5px;">${esc(i.name)}</span>
+              ${priceHtml}
+            </div>
+            ${modsHtml}
+          </div>`;
+      }).join('');
+
+      const totalHtml = printPrices
+        ? `<div style="display: flex; justify-content: space-between; align-items: center; font-size: 15px; font-weight: bold; margin-top: 4px;">
+             <span>ΣΥΝΟΛΟ:</span>
+             <span style="font-size: 17px;">${money(o.total)}</span>
+           </div>`
+        : `<div style="display: flex; justify-content: space-between; font-size: 13px; font-weight: bold; margin-top: 4px;">
+             <span>Σύνολο ειδών:</span>
+             <span>${items.length}</span>
+           </div>`;
+
+      const row = (label, value) => `
+        <div style="display: flex; justify-content: space-between;">
+          <span>${label}</span>
+          <strong>${value}</strong>
+        </div>`;
+
+      document.getElementById('receipt-print-area').innerHTML = `
+        <div style="font-family: 'Courier New', Courier, monospace; width: 72mm; margin: 0 auto; padding: 5px; color: #000; font-size: 13px; line-height: 1.3;">
+          <div style="text-align: center; border-bottom: 1px dashed #000; padding-bottom: 6px; margin-bottom: 8px;">
+            <h2 style="margin: 0 0 2px 0; font-size: 16px; font-weight: bold; text-transform: uppercase;">${esc(busName)}</h2>
+            <div style="font-size: 11px;">ΑΦΜ: ${esc(busVat)}</div>
+            ${isCopy ? '<div style="font-size: 12px; font-weight: bold; margin-top: 4px;">*** ΑΝΤΙΓΡΑΦΟ ***</div>' : ''}
+          </div>
+
+          <div style="margin-bottom: 8px; border-bottom: 1px dashed #000; padding-bottom: 6px; font-size: 12px;">
+            ${row('Παραγγελία:', '#' + esc(orderNo(o)))}
+            ${row('Πελάτης/Τραπέζι:', esc(o.customer))}
+            ${row('Ημ/νία:', esc(fmtDateTime(o)))}
+            ${o.pdaName ? row('Παρήγγειλε (PDA):', esc(o.pdaName)) : ''}
+          </div>
+
+          <div style="border-bottom: 1px dashed #000; padding-bottom: 6px; margin-bottom: 8px;">
+            ${itemsHtml}
+          </div>
+
+          ${totalHtml}
+
+          <div style="text-align: center; margin-top: 15px; font-size: 11px; border-top: 1px dashed #000; padding-top: 6px;">
+            Ευχαριστούμε για την προτίμηση!
+          </div>
+        </div>
+      `;
+      window.print();
+    };
+
+    // ---------- Ιστορικό παραγγελιών ----------
+    const HIST_LIMIT = 200;
+    const openHist = new Set();
+
+    window.openHistoryModal = function() {
+      fillSelect('hist-customer', '-- Όλοι --', customerNames(), false);
+      fillSelect('hist-pda', '-- Όλα --', pdaNames(), false);
+      document.getElementById('history-modal').style.display = 'flex';
+      window.renderHistory();
+    };
+
+    window.closeHistoryModal = function() {
+      document.getElementById('history-modal').style.display = 'none';
+    };
+
+    window.histToggle = function(id, isOpen) {
+      if (isOpen) openHist.add(id); else openHist.delete(id);
+    };
+
+    window.renderHistory = function() {
+      const dFromV = document.getElementById('hist-date-from').value;
+      const dToV = document.getElementById('hist-date-to').value;
+      const dateFrom = dFromV ? new Date(dFromV + 'T00:00:00') : null;
+      const dateTo = dToV ? new Date(dToV + 'T23:59:59') : null;
+      const customer = document.getElementById('hist-customer').value;
+      const pda = document.getElementById('hist-pda').value;
+      const status = document.getElementById('hist-status').value;
+      const q = norm(document.getElementById('hist-search').value.trim());
+
+      const list = allOrders.filter(o => {
+        const d = orderDate(o);
+        if (dateFrom && d && d < dateFrom) return false;
+        if (dateTo && d && d > dateTo) return false;
+        if (customer !== 'ALL' && o.customer !== customer) return false;
+        if (pda !== 'ALL' && pdaName(o) !== pda) return false;
+        if (status === 'active' && isDone(o)) return false;
+        if (status === 'done' && !isDone(o)) return false;
+        if (q) {
+          const hay = norm([o.id, o.customer, o.pdaName, ...(o.items || []).flatMap(i => [i.name, ...(i.mods || [])])].join(' '));
+          if (!hay.includes(q)) return false;
+        }
+        return true;
+      });
+
+      const total = list.reduce((a, o) => a + Number(o.total || 0), 0);
+      document.getElementById('hist-count').innerText = list.length;
+      document.getElementById('hist-total').innerText = money(total);
+
+      const el = document.getElementById('hist-list');
+      if (list.length === 0) {
+        el.innerHTML = '<div class="empty"><span class="empty-icon">🧾</span>Δεν βρέθηκαν παραγγελίες.</div>';
+        return;
+      }
+
+      el.innerHTML = list.slice(0, HIST_LIMIT).map(o => {
+        const done = isDone(o);
+        const kitchenReady = o.kitchenStatus === 'Έτοιμο';
+        return `
+          <details class="hist-row" ${openHist.has(o.firestoreId) ? 'open' : ''} ontoggle="window.histToggle('${o.firestoreId}', this.open)">
+            <summary>
+              <span class="hist-no">#${esc(orderNo(o))}</span>
+              <span class="hist-main">
+                <strong>${esc(o.customer)}</strong>
+                <small>🕒 ${esc(fmtDateTime(o))} · 👤 ${esc(pdaName(o))}</small>
+              </span>
+              <span class="badge ${done ? 'badge-success' : 'badge-warning'}">${done ? 'Ολοκληρωμένη' : 'Ενεργή'}</span>
+              <strong class="hist-total">${money(o.total)}</strong>
+            </summary>
+            <div class="hist-body">
+              <ul class="order-items">${itemsListHtml(o)}</ul>
+              <div class="hist-foot">
+                <span class="muted" style="font-size:0.88rem;">Κουζίνα: ${kitchenReady ? '✅ Έτοιμο' : '⏳ Σε εξέλιξη'} · ${(o.items || []).length} είδη</span>
+                <button class="btn btn-ghost" onclick="window.printThermal('${o.firestoreId}', true)">🖨️ Επανεκτύπωση</button>
+              </div>
+            </div>
+          </details>`;
+      }).join('') + (list.length > HIST_LIMIT
+        ? `<div class="hist-note">Εμφανίζονται οι ${HIST_LIMIT} πιο πρόσφατες από ${list.length}. Στένεψε τα φίλτρα για να δεις τις υπόλοιπες.</div>`
+        : '');
+    };
+  </script>
+</body>
+</html>
