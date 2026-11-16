@@ -1,0 +1,757 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Panel - Cloud Management</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <style>html { visibility: hidden; }</style>
+</head>
+<body>
+  <div class="header-bar">
+    <h2>⚙️ Διαχειριστικό Panel</h2>
+    <div class="header-actions">
+      <a href="base.html" class="btn btn-ghost">🖥️ Base</a>
+      <a href="pda.html" class="btn btn-ghost">📱 PDA</a>
+    </div>
+  </div>
+
+  <!-- Switch Kitchen Display -->
+  <div class="card card-accent-success row-between" style="flex-wrap:wrap;">
+    <div>
+      <h3 class="card-title" style="margin-bottom:6px;">🍳 Οθόνη Κουζίνας</h3>
+      <label class="muted" style="cursor:pointer; font-weight:500; font-size:0.9rem; display:flex; align-items:center; gap:8px;">
+        <input type="checkbox" id="kitchen-switch" onchange="toggleKitchen()" style="width:18px; height:18px; accent-color:var(--success);">
+        Ενεργοποίηση Οθόνης Κουζίνας
+      </label>
+    </div>
+    <a href="kitchen.html" target="_blank" class="btn">Άνοιγμα Kitchen ↗</a>
+  </div>
+
+  <!-- ═════════ ΠΛΑΙΣΙΟ 1: Επιχείρηση, Χειριστές, Πελάτες ═════════ -->
+  <section class="section-panel">
+    <div class="section-panel-head">
+      <h2>🏢 Επιχείρηση & Χειριστές</h2>
+      <p>Στοιχεία επιχείρησης, χρήστες (ρόλοι, εκτύπωση, theme) και πελάτες/τραπέζια</p>
+    </div>
+
+    <!-- Στοιχεία επιχείρησης -->
+        <div class="card">
+          <h3 class="card-title">🏢 Στοιχεία Επιχείρησης</h3>
+          <div class="stack">
+            <input type="text" id="bus-name" placeholder="Όνομα Επιχείρησης" value="Καφετέρια POS">
+            <button class="btn btn-block" onclick="saveBusiness()">Αποθήκευση</button>
+          </div>
+        </div>
+
+    <!-- Χειριστές (χρήστες & ρόλοι) -->
+      <div class="card card-accent-primary">
+        <h3 class="card-title">🔐 Χειριστές (Χρήστες & Ρόλοι)</h3>
+        <div id="users-list" style="margin-bottom:16px;"></div>
+
+        <div class="panel">
+          <span class="panel-label">Νέος χρήστης</span>
+          <div class="user-form">
+            <input type="text" id="user-name" placeholder="Όνομα (π.χ. Μαρία)">
+            <input type="email" id="user-email" placeholder="Email" autocomplete="off">
+            <input type="password" id="user-password" placeholder="Κωδικός (τουλάχιστον 6 χαρ.)" autocomplete="new-password">
+            <select id="user-role">
+              <option value="pda">PDA (παραγγελιοληψία)</option>
+              <option value="base">Base (ταμείο)</option>
+              <option value="kds">KDS (κουζίνα)</option>
+              <option value="admin">Διαχειριστής</option>
+            </select>
+          </div>
+          <button id="add-user-btn" class="btn btn-success btn-block" onclick="addUser()">+ Δημιουργία Χρήστη</button>
+        </div>
+      </div>
+
+    <!-- Πελάτες & Τραπέζια -->
+        <div class="card card-accent-primary">
+          <h3 class="card-title">👥 Πελάτες & Τραπέζια</h3>
+          <div id="customers-list" class="tag-list"></div>
+          <div class="row">
+            <input type="text" id="cust-name" placeholder="π.χ. Τραπέζι 5">
+            <button class="btn btn-success" onclick="addCustomer()">+ Προσθήκη</button>
+          </div>
+        </div>
+  </section>
+
+  <!-- ═════════ ΠΛΑΙΣΙΟ 2: Κατάλογος ═════════ -->
+  <section class="section-panel">
+    <div class="section-panel-head">
+      <h2>🍽️ Κατάλογος</h2>
+      <p>Κατηγορίες, τροποποιητές και προϊόντα με αντιστοίχιση</p>
+    </div>
+
+    <div class="grid-3">
+      <!-- Κατηγορίες -->
+          <div class="card">
+            <h3 class="card-title">📁 Κατηγορίες</h3>
+            <div id="categories-list" class="tag-list"></div>
+            <div class="row">
+              <input type="text" id="cat-name" placeholder="Νέα Κατηγορία">
+              <button class="btn" onclick="addCategory()">+</button>
+            </div>
+          </div>
+
+      <!-- Τροποποιητές -->
+          <div class="card">
+            <h3 class="card-title">📑 Τροποποιητές</h3>
+            <div class="panel stack" style="margin-bottom:16px;">
+              <input type="text" id="group-name" placeholder="Όνομα Ομάδας (π.χ. Γλυκύτητα)">
+              <select id="group-type">
+                <option value="single">Μονή Επιλογή (Radio)</option>
+                <option value="multiple">Πολλαπλή Επιλογή (Checkbox)</option>
+              </select>
+              <button class="btn btn-block" onclick="addGroup()">+ Δημιουργία Ομάδας</button>
+            </div>
+            <div id="groups-container"></div>
+          </div>
+
+      <!-- Προϊόντα & Αντιστοίχιση -->
+          <div class="card">
+            <h3 class="card-title">🍔 Προϊόντα & Αντιστοίχιση</h3>
+            <div class="panel stack" style="margin-bottom:16px;">
+              <span class="panel-label">📊 Excel (Κατηγορία / Είδος / Τιμή / ΦΠΑ)</span>
+              <div class="row" style="flex-wrap:wrap;">
+                <button class="btn btn-ghost" onclick="exportProductsExcel()">⬇️ Εξαγωγή</button>
+                <button class="btn btn-ghost" onclick="downloadProductsTemplate()">📄 Πρότυπο</button>
+                <button class="btn" onclick="document.getElementById('excel-file').click()">⬆️ Εισαγωγή</button>
+                <input type="file" id="excel-file" accept=".xlsx,.xls,.csv" style="display:none;" onchange="importProductsExcel(this)">
+              </div>
+              <div class="muted" style="font-size:0.8rem;">Είδη που υπάρχουν ήδη (ίδιο όνομα + κατηγορία) ενημερώνονται· τα υπόλοιπα προστίθενται. Νέες κατηγορίες δημιουργούνται αυτόματα.</div>
+            </div>
+            <div id="products-list" class="list-scroll"></div>
+      
+            <div class="panel">
+              <span class="panel-label">Νέο Προϊόν</span>
+              <div class="stack">
+                <input type="text" id="prod-name" placeholder="Όνομα">
+                <div class="row">
+                  <input type="number" id="prod-price" placeholder="Τιμή (€)" step="0.01">
+                  <input type="number" id="prod-vat" placeholder="ΦΠΑ %" value="13" style="width:100px;">
+                </div>
+                <select id="prod-cat"></select>
+              </div>
+
+              <span class="panel-label" style="margin-top:14px;">Ομάδες Τροποποιητών</span>
+              <div id="prod-groups-checkboxes" class="chip-box"></div>
+
+              <button class="btn btn-success btn-block" onclick="addProduct()">+ Προσθήκη Προϊόντος</button>
+            </div>
+          </div>
+    </div>
+  </section>
+
+  <style>
+    .tag-edit { cursor:pointer; margin:0 2px; font-size:0.8rem; opacity:.7; font-weight:400; }
+    .tag-edit:hover { opacity:1; }
+    .edit-field { margin-bottom:12px; }
+    .edit-field label.field-label { display:block; margin-bottom:4px; font-size:0.85rem; font-weight:600; }
+  </style>
+  <div id="edit-modal" class="modal" onclick="if(event.target===this) closeEditor()">
+    <div class="modal-content">
+      <div id="edit-title" class="modal-title"></div>
+      <div id="edit-body"></div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" type="button" onclick="closeEditor()">Άκυρο</button>
+        <button class="btn btn-success" type="button" id="edit-save">💾 Αποθήκευση</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { initializeApp, deleteApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+    import { getAuth, createUserWithEmailAndPassword, signOut as fbSignOut, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+    import { requireRole, auth, ROLE_LABELS, THEMES } from "./auth.js";
+    import { getFirestore, collection, getDocs, addDoc, deleteDoc, doc, updateDoc, onSnapshot, setDoc, getDoc, writeBatch } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyCW2zewf0DdRv-E_lQb9dznRwocu_qa38o",
+      authDomain: "order-6014b.firebaseapp.com",
+      projectId: "order-6014b",
+      storageBucket: "order-6014b.firebasestorage.app",
+      messagingSenderId: "656642189339",
+      appId: "1:656642189339:web:bb8bf9745f8e44c276b0be",
+      measurementId: "G-N16YS8TW0S"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+
+    // Μόνο διαχειριστές
+    const me = await requireRole(['admin']);
+
+    let categories = ['Καφέδες', 'Φαγητό'];
+    let customers = ['Τραπέζι 1', 'Τραπέζι 2', 'Παραλαβή'];
+    let modifierGroups = [];
+    let products = [];
+
+    onSnapshot(doc(db, "pos_settings", "general"), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        document.getElementById('kitchen-switch').checked = data.kitchen_enabled !== false;
+        if(data.bus_name) document.getElementById('bus-name').value = data.bus_name;
+        if(data.categories) categories = data.categories;
+        if(data.customers) customers = data.customers;
+        renderAll();
+      }
+    });
+
+    onSnapshot(collection(db, "pos_mod_groups"), (snapshot) => {
+      modifierGroups = [];
+      snapshot.forEach(d => modifierGroups.push({ ...d.data(), firestoreId: d.id }));
+      renderAll();
+    });
+
+    onSnapshot(collection(db, "pos_products"), (snapshot) => {
+      products = [];
+      snapshot.forEach(d => products.push({ ...d.data(), firestoreId: d.id }));
+      renderAll();
+    });
+
+    window.toggleKitchen = async function() {
+      const kitchenSwitch = document.getElementById('kitchen-switch');
+      try {
+        await setDoc(doc(db, "pos_settings", "general"), { kitchen_enabled: kitchenSwitch.checked }, { merge: true });
+      } catch(e) { console.error(e); }
+    };
+
+    window.renderAll = function() {
+      // Render Categories
+      document.getElementById('categories-list').innerHTML = categories.map((c, i) => `<span class="mod-tag">${esc(c)} <b class="tag-edit" title="Μετακίνηση αριστερά" onclick="moveCategory(${i}, -1)">◀</b><b class="tag-edit" title="Μετακίνηση δεξιά" onclick="moveCategory(${i}, 1)">▶</b><b class="tag-edit" title="Επεξεργασία" onclick="editCategory(${i})">✏️</b><b class="tag-remove" onclick="deleteCategory(${i})">×</b></span>`).join('');
+      document.getElementById('prod-cat').innerHTML = categories.map(c => `<option value="${c}">${c}</option>`).join('');
+
+      // Render Customers / Tables
+      document.getElementById('customers-list').innerHTML = customers.map((c, i) => `<span class="mod-tag tag-primary">👤 ${esc(c)} <b class="tag-edit" title="Επεξεργασία" onclick="editCustomer(${i})">✏️</b><b class="tag-remove" onclick="deleteCustomer(${i})">×</b></span>`).join('');
+
+      // Render Modifier Groups
+      const groupsDiv = document.getElementById('groups-container');
+      groupsDiv.innerHTML = modifierGroups.length === 0
+        ? '<div class="empty">Δεν υπάρχουν ομάδες ακόμα</div>'
+        : modifierGroups.map((g, gIdx) => `
+        <div class="group-box">
+          <div class="group-head">
+            <span>${esc(g.name)} <small class="muted" style="font-weight:500;">(${g.type === 'single' ? 'Μονή' : 'Πολλαπλή'})</small></span>
+            <span><button class="icon-btn" title="Επεξεργασία" style="color:inherit;" onclick="editGroup('${g.firestoreId}')">✏️</button><button class="icon-btn" onclick="deleteGroup('${g.firestoreId}')">🗑️</button></span>
+          </div>
+          <div class="group-items">
+            ${(g.items || []).map((item, iIdx) => `<div class="group-item"><span>• ${esc(item.name)} <span class="muted">(${item.price > 0 ? '+' + item.price + '€' : '0€'})</span></span> <span><span class="tag-edit" onclick="editModItem('${g.firestoreId}', ${iIdx})">✏️</span> <span class="tag-remove" onclick="deleteModItem('${g.firestoreId}', ${iIdx})">✕</span></span></div>`).join('')}
+          </div>
+          <div class="row">
+            <input type="text" id="newItemName_${g.firestoreId}" placeholder="Όνομα" style="flex:1;">
+            <input type="number" id="newItemPrice_${g.firestoreId}" placeholder="€" style="width:80px;" step="0.1" value="0">
+            <button class="btn btn-icon" onclick="addModItem('${g.firestoreId}')">+</button>
+          </div>
+        </div>
+      `).join('');
+
+      document.getElementById('prod-groups-checkboxes').innerHTML = modifierGroups.length === 0
+        ? '<span class="muted" style="font-size:0.85rem;">Δεν υπάρχουν ομάδες</span>'
+        : modifierGroups.map(g => `
+        <label><input type="checkbox" value="${g.id || g.firestoreId}" class="prod-group-chk"> ${g.name}</label>
+      `).join('');
+
+      // Render Products
+      document.getElementById('products-list').innerHTML = products.length === 0
+        ? '<div class="empty">Δεν υπάρχουν προϊόντα ακόμα</div>'
+        : sortProducts(products).map((p, i) => `
+        <div class="list-row">
+          <span><strong>${esc(p.name)}</strong> <span class="muted">· ${Number(p.price).toFixed(2)}€ · ΦΠΑ ${p.vat ?? 13}% · ${esc(p.category || '—')}</span></span>
+          <span style="display:flex;gap:6px;"><button onclick="moveProduct('${p.firestoreId}', -1)" class="btn btn-ghost btn-sm" title="Πάνω">⬆️</button><button onclick="moveProduct('${p.firestoreId}', 1)" class="btn btn-ghost btn-sm" title="Κάτω">⬇️</button><button onclick="editProduct('${p.firestoreId}')" class="btn btn-ghost btn-sm">✏️ Επεξεργασία</button><button onclick="deleteProduct('${p.firestoreId}')" class="btn btn-danger btn-sm">Διαγραφή</button></span>
+        </div>
+      `).join('');
+    };
+
+    window.addGroup = async function() {
+      const name = document.getElementById('group-name').value;
+      const type = document.getElementById('group-type').value;
+      if(name) {
+        try {
+          await addDoc(collection(db, "pos_mod_groups"), { id: 'g_' + Date.now(), name, type, items: [] });
+          document.getElementById('group-name').value = '';
+        } catch(e) { console.error(e); }
+      }
+    };
+
+    window.deleteGroup = async function(firestoreId) {
+      try {
+        await deleteDoc(doc(db, "pos_mod_groups", firestoreId));
+      } catch(e) { console.error(e); }
+    };
+
+    window.addModItem = async function(firestoreId) {
+      const g = modifierGroups.find(group => group.firestoreId === firestoreId);
+      const name = document.getElementById(`newItemName_${firestoreId}`).value;
+      const price = parseFloat(document.getElementById(`newItemPrice_${firestoreId}`).value) || 0;
+      if(name && g) {
+        let items = g.items || [];
+        items.push({ id: 'item_' + Date.now(), name, price });
+        try {
+          await updateDoc(doc(db, "pos_mod_groups", firestoreId), { items: items });
+        } catch(e) { console.error(e); }
+      }
+    };
+
+    window.deleteModItem = async function(firestoreId, iIdx) {
+      const g = modifierGroups.find(group => group.firestoreId === firestoreId);
+      if(g && g.items) {
+        g.items.splice(iIdx, 1);
+        try {
+          await updateDoc(doc(db, "pos_mod_groups", firestoreId), { items: g.items });
+        } catch(e) { console.error(e); }
+      }
+    };
+
+    window.deleteProduct = async function(firestoreId) {
+      try {
+        await deleteDoc(doc(db, "pos_products", firestoreId));
+      } catch(e) { console.error(e); }
+    };
+
+    window.addCategory = async function() {
+      const name = document.getElementById('cat-name').value;
+      if(name && !categories.includes(name)) {
+        categories.push(name);
+        try {
+          await setDoc(doc(db, "pos_settings", "general"), { categories: categories }, { merge: true });
+          document.getElementById('cat-name').value = '';
+        } catch(e) { console.error(e); }
+      }
+    };
+
+    window.deleteCategory = async function(index) {
+      categories.splice(index, 1);
+      try {
+        await setDoc(doc(db, "pos_settings", "general"), { categories: categories }, { merge: true });
+      } catch(e) { console.error(e); }
+    };
+
+    window.addCustomer = async function() {
+      const name = document.getElementById('cust-name').value;
+      if(name && !customers.includes(name)) {
+        customers.push(name);
+        try {
+          await setDoc(doc(db, "pos_settings", "general"), { customers: customers }, { merge: true });
+          document.getElementById('cust-name').value = '';
+        } catch(e) { console.error(e); }
+      }
+    };
+
+    window.deleteCustomer = async function(index) {
+      customers.splice(index, 1);
+      try {
+        await setDoc(doc(db, "pos_settings", "general"), { customers: customers }, { merge: true });
+      } catch(e) { console.error(e); }
+    };
+
+    window.addProduct = async function() {
+      const name = document.getElementById('prod-name').value;
+      const price = parseFloat(document.getElementById('prod-price').value);
+      const vat = parseFloat(document.getElementById('prod-vat').value) || 13;
+      const category = document.getElementById('prod-cat').value;
+      const selectedGroups = Array.from(document.querySelectorAll('.prod-group-chk:checked')).map(cb => cb.value);
+
+      if(name && !isNaN(price)) {
+        try {
+          await addDoc(collection(db, "pos_products"), { id: 'p_' + Date.now(), name, price, vat, category, allowedGroups: selectedGroups, sortOrder: products.filter(x => x.category === category).length });
+          document.getElementById('prod-name').value = '';
+          document.getElementById('prod-price').value = '';
+          alert('Το προϊόν προστέθηκε στο Cloud!');
+        } catch(e) { console.error(e); }
+      }
+    };
+
+
+    // ===== Excel: εισαγωγή / εξαγωγή ειδών =====
+    const XL_HEADERS = ['Κατηγορία', 'Είδος', 'Τιμή', 'ΦΠΑ %'];
+    const normKey = (s) => String(s ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zα-ω0-9%]/g, '');
+    const toNum = (v) => {
+      if (typeof v === 'number') return v;
+      const n = parseFloat(String(v ?? '').replace('€', '').replace('%', '').replace(/\s/g, '').replace(',', '.'));
+      return isNaN(n) ? NaN : n;
+    };
+
+    function saveWorkbook(rows, filename) {
+      const ws = XLSX.utils.aoa_to_sheet([XL_HEADERS, ...rows]);
+      ws['!cols'] = [{ wch: 22 }, { wch: 32 }, { wch: 10 }, { wch: 8 }];
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Είδη');
+      XLSX.writeFile(wb, filename);
+    }
+
+    window.exportProductsExcel = function() {
+      if (!products.length) return alert('Δεν υπάρχουν είδη για εξαγωγή.');
+      const rows = sortProducts(products)
+        .map(p => [p.category || '', p.name || '', Number(p.price) || 0, Number(p.vat) || 0]);
+      saveWorkbook(rows, 'eidi_' + new Date().toISOString().slice(0, 10) + '.xlsx');
+    };
+
+    window.downloadProductsTemplate = function() {
+      saveWorkbook([['Καφέδες', 'Espresso', 2.5, 13], ['Φαγητό', 'Τοστ', 3.8, 13], ['Ποτά', 'Μπύρα', 4, 24]], 'protypo_eidon.xlsx');
+    };
+
+    window.importProductsExcel = async function(input) {
+      const file = input.files[0];
+      input.value = '';
+      if (!file) return;
+      try {
+        const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+        const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '', blankrows: false });
+        if (!rows.length) return alert('Το αρχείο είναι άδειο.');
+
+        // Εντοπισμός στηλών από την επικεφαλίδα (αλλιώς σειρά: Κατηγορία, Είδος, Τιμή, ΦΠΑ)
+        const head = rows[0].map(normKey);
+        const find = (names) => head.findIndex(h => names.some(n => h.startsWith(n)));
+        let col = {
+          cat: find(['κατηγορια', 'category']),
+          name: find(['ειδος', 'ειδη', 'προιον', 'ονομα', 'name', 'item', 'product']),
+          price: find(['τιμη', 'price']),
+          vat: find(['φπα', 'vat'])
+        };
+        let start = 1;
+        if (col.cat < 0 || col.name < 0 || col.price < 0) { col = { cat: 0, name: 1, price: 2, vat: 3 }; start = isNaN(toNum(rows[0][2])) ? 1 : 0; }
+
+        const valid = [], errors = [];
+        for (let r = start; r < rows.length; r++) {
+          const row = rows[r];
+          const category = String(row[col.cat] ?? '').trim();
+          const name = String(row[col.name] ?? '').trim();
+          const price = toNum(row[col.price]);
+          let vat = col.vat >= 0 && String(row[col.vat]).trim() !== '' ? toNum(row[col.vat]) : 13;
+          if (!name && !category && isNaN(price)) continue;
+          if (!name || !category || isNaN(price) || price < 0) { errors.push('Γραμμή ' + (r + 1)); continue; }
+          if (isNaN(vat)) vat = 13;
+          if (vat > 0 && vat < 1) vat = Math.round(vat * 100); // 0.13 -> 13
+          valid.push({ category, name, price: Math.round(price * 100) / 100, vat });
+        }
+        if (!valid.length) return alert('Δεν βρέθηκαν έγκυρες γραμμές.' + (errors.length ? '\nΛανθασμένες: ' + errors.join(', ') : ''));
+
+        const key = (c, n) => normKey(c) + '|' + normKey(n);
+        const existing = new Map(products.map(p => [key(p.category, p.name), p]));
+        const newCats = [...new Set(valid.map(v => v.category))].filter(c => !categories.includes(c));
+        const toUpdate = valid.filter(v => existing.has(key(v.category, v.name)));
+        const toAdd = valid.filter(v => !existing.has(key(v.category, v.name)));
+
+        const msg = 'Εισαγωγή από Excel:\n• Νέα είδη: ' + toAdd.length + '\n• Ενημέρωση υπαρχόντων: ' + toUpdate.length +
+          '\n• Νέες κατηγορίες: ' + newCats.length + (newCats.length ? ' (' + newCats.join(', ') + ')' : '') +
+          (errors.length ? '\n• Παραλείφθηκαν (λάθος δεδομένα): ' + errors.join(', ') : '') + '\n\nΣυνέχεια;';
+        if (!confirm(msg)) return;
+
+        if (newCats.length) {
+          categories = [...categories, ...newCats];
+          await setDoc(doc(db, "pos_settings", "general"), { categories }, { merge: true });
+        }
+
+        const ops = [];
+        const stamp = Date.now();
+        const nextOrder = {};
+        toAdd.forEach((v, i) => {
+          if (nextOrder[v.category] === undefined) nextOrder[v.category] = products.filter(p => p.category === v.category).reduce((m, p) => Math.max(m, (p.sortOrder ?? -1) + 1), products.filter(p => p.category === v.category).length);
+          const so = nextOrder[v.category]++;
+          ops.push(b => b.set(doc(collection(db, "pos_products")), { id: 'p_' + stamp + '_' + i, name: v.name, price: v.price, vat: v.vat, category: v.category, allowedGroups: [], sortOrder: so }));
+        });
+        toUpdate.forEach(v => { const ex = existing.get(key(v.category, v.name)); ops.push(b => b.update(doc(db, "pos_products", ex.firestoreId), { price: v.price, vat: v.vat })); });
+        for (let i = 0; i < ops.length; i += 400) {
+          const batch = writeBatch(db);
+          ops.slice(i, i + 400).forEach(f => f(batch));
+          await batch.commit();
+        }
+        alert('Ολοκληρώθηκε! Προστέθηκαν ' + toAdd.length + ', ενημερώθηκαν ' + toUpdate.length + '.');
+      } catch (e) {
+        console.error(e);
+        alert('Σφάλμα κατά την εισαγωγή: ' + (e.message || e));
+      }
+    };
+
+
+
+    // ===== Σειρά κατηγοριών & προϊόντων =====
+    function sortProducts(list) {
+      const ci = (p) => { const i = categories.indexOf(p.category); return i < 0 ? 999 : i; };
+      return [...list].sort((a, b) => ci(a) - ci(b) || (a.sortOrder ?? 9999) - (b.sortOrder ?? 9999) || String(a.name).localeCompare(String(b.name), 'el'));
+    }
+
+    window.moveCategory = async function(index, dir) {
+      const j = index + dir;
+      if (j < 0 || j >= categories.length) return;
+      const updated = [...categories];
+      [updated[index], updated[j]] = [updated[j], updated[index]];
+      try { await setDoc(doc(db, "pos_settings", "general"), { categories: updated }, { merge: true }); } catch (e) { console.error(e); }
+    };
+
+    // Μετακίνηση προϊόντος μέσα στην κατηγορία του
+    window.moveProduct = async function(firestoreId, dir) {
+      const p = products.find(x => x.firestoreId === firestoreId);
+      if (!p) return;
+      const group = sortProducts(products.filter(x => x.category === p.category));
+      const i = group.findIndex(x => x.firestoreId === firestoreId);
+      const j = i + dir;
+      if (j < 0 || j >= group.length) return;
+      [group[i], group[j]] = [group[j], group[i]];
+      try {
+        const batch = writeBatch(db);
+        group.forEach((x, idx) => { if (x.sortOrder !== idx) batch.update(doc(db, "pos_products", x.firestoreId), { sortOrder: idx }); });
+        await batch.commit();
+      } catch (e) { console.error(e); }
+    };
+
+    // ===== Επεξεργασία (modal) =====
+    let editSaveHandler = null;
+
+    // fields: [{key,label,type:'text'|'number'|'select'|'checkboxes',value,options:[{value,label}],step}]
+    function openEditor(title, fields, onSave) {
+      document.getElementById('edit-title').textContent = title;
+      document.getElementById('edit-body').innerHTML = fields.map(f => {
+        const id = 'ef_' + f.key;
+        let input;
+        if (f.type === 'select') {
+          input = `<select id="${id}">${f.options.map(o => `<option value="${esc(o.value)}" ${o.value === f.value ? 'selected' : ''}>${esc(o.label)}</option>`).join('')}</select>`;
+        } else if (f.type === 'checkboxes') {
+          input = `<div class="chip-box" id="${id}">${f.options.length ? f.options.map(o => `<label><input type="checkbox" value="${esc(o.value)}" ${(f.value || []).includes(o.value) ? 'checked' : ''}> ${esc(o.label)}</label>`).join('') : '<span class="muted">Δεν υπάρχουν ομάδες</span>'}</div>`;
+        } else {
+          input = `<input type="${f.type || 'text'}" id="${id}" value="${esc(f.value)}" ${f.step ? `step="${f.step}"` : ''}>`;
+        }
+        return `<div class="edit-field"><label class="field-label">${esc(f.label)}</label>${input}</div>`;
+      }).join('');
+      editSaveHandler = async () => {
+        const vals = {};
+        fields.forEach(f => {
+          const el = document.getElementById('ef_' + f.key);
+          vals[f.key] = f.type === 'checkboxes'
+            ? Array.from(el.querySelectorAll('input:checked')).map(c => c.value)
+            : el.value;
+        });
+        try {
+          const ok = await onSave(vals);
+          if (ok !== false) closeEditor();
+        } catch (e) { console.error(e); alert('Σφάλμα αποθήκευσης: ' + (e.message || e)); }
+      };
+      document.getElementById('edit-save').onclick = () => editSaveHandler();
+      document.getElementById('edit-modal').style.display = 'flex';
+      const first = document.querySelector('#edit-body input[type=text], #edit-body input[type=number]');
+      if (first) { first.focus(); first.select(); }
+    }
+    window.closeEditor = function() { document.getElementById('edit-modal').style.display = 'none'; editSaveHandler = null; };
+    document.addEventListener('keydown', (e) => {
+      if (document.getElementById('edit-modal').style.display !== 'flex') return;
+      if (e.key === 'Escape') closeEditor();
+      if (e.key === 'Enter' && e.target.tagName === 'INPUT' && e.target.type !== 'checkbox' && editSaveHandler) editSaveHandler();
+    });
+
+    // --- Κατηγορίες (μετονομασία ενημερώνει και τα προϊόντα της κατηγορίας)
+    window.editCategory = function(index) {
+      const old = categories[index];
+      openEditor('Επεξεργασία Κατηγορίας', [{ key: 'name', label: 'Όνομα κατηγορίας', value: old }], async (v) => {
+        const name = v.name.trim();
+        if (!name) { alert('Το όνομα είναι υποχρεωτικό.'); return false; }
+        if (name === old) return true;
+        if (categories.includes(name)) { alert('Υπάρχει ήδη κατηγορία με αυτό το όνομα.'); return false; }
+        const updated = [...categories]; updated[index] = name;
+        await setDoc(doc(db, "pos_settings", "general"), { categories: updated }, { merge: true });
+        const affected = products.filter(p => p.category === old);
+        for (let i = 0; i < affected.length; i += 400) {
+          const batch = writeBatch(db);
+          affected.slice(i, i + 400).forEach(p => batch.update(doc(db, "pos_products", p.firestoreId), { category: name }));
+          await batch.commit();
+        }
+      });
+    };
+
+    // --- Πελάτες & Τραπέζια
+    window.editCustomer = function(index) {
+      const old = customers[index];
+      openEditor('Επεξεργασία Πελάτη / Τραπεζιού', [{ key: 'name', label: 'Όνομα', value: old }], async (v) => {
+        const name = v.name.trim();
+        if (!name) { alert('Το όνομα είναι υποχρεωτικό.'); return false; }
+        if (name === old) return true;
+        if (customers.includes(name)) { alert('Υπάρχει ήδη καταχώρηση με αυτό το όνομα.'); return false; }
+        const updated = [...customers]; updated[index] = name;
+        await setDoc(doc(db, "pos_settings", "general"), { customers: updated }, { merge: true });
+      });
+    };
+
+    // --- Ομάδες τροποποιητών
+    window.editGroup = function(firestoreId) {
+      const g = modifierGroups.find(x => x.firestoreId === firestoreId);
+      if (!g) return;
+      openEditor('Επεξεργασία Ομάδας', [
+        { key: 'name', label: 'Όνομα ομάδας', value: g.name },
+        { key: 'type', label: 'Τύπος επιλογής', type: 'select', value: g.type, options: [{ value: 'single', label: 'Μονή Επιλογή (Radio)' }, { value: 'multiple', label: 'Πολλαπλή Επιλογή (Checkbox)' }] }
+      ], async (v) => {
+        const name = v.name.trim();
+        if (!name) { alert('Το όνομα είναι υποχρεωτικό.'); return false; }
+        await updateDoc(doc(db, "pos_mod_groups", firestoreId), { name, type: v.type });
+      });
+    };
+
+    // --- Επιλογές μέσα σε ομάδα τροποποιητών
+    window.editModItem = function(firestoreId, iIdx) {
+      const g = modifierGroups.find(x => x.firestoreId === firestoreId);
+      const item = g && g.items && g.items[iIdx];
+      if (!item) return;
+      openEditor('Επεξεργασία Επιλογής', [
+        { key: 'name', label: 'Όνομα', value: item.name },
+        { key: 'price', label: 'Επιβάρυνση (€)', type: 'number', step: '0.01', value: item.price || 0 }
+      ], async (v) => {
+        const name = v.name.trim();
+        const price = parseFloat(String(v.price).replace(',', '.'));
+        if (!name || isNaN(price) || price < 0) { alert('Έλεγξε το όνομα και την τιμή.'); return false; }
+        const items = g.items.map((it, i) => i === iIdx ? { ...it, name, price } : it);
+        await updateDoc(doc(db, "pos_mod_groups", firestoreId), { items });
+      });
+    };
+
+    // --- Προϊόντα & Αντιστοίχιση
+    window.editProduct = function(firestoreId) {
+      const p = products.find(x => x.firestoreId === firestoreId);
+      if (!p) return;
+      const catOpts = [...categories];
+      if (p.category && !catOpts.includes(p.category)) catOpts.push(p.category);
+      openEditor('Επεξεργασία Προϊόντος', [
+        { key: 'name', label: 'Όνομα', value: p.name },
+        { key: 'category', label: 'Κατηγορία', type: 'select', value: p.category, options: catOpts.map(c => ({ value: c, label: c })) },
+        { key: 'price', label: 'Τιμή (€)', type: 'number', step: '0.01', value: p.price },
+        { key: 'vat', label: 'ΦΠΑ %', type: 'number', value: p.vat ?? 13 },
+        { key: 'groups', label: 'Ομάδες Τροποποιητών', type: 'checkboxes', value: p.allowedGroups || [], options: modifierGroups.map(g => ({ value: g.id || g.firestoreId, label: g.name })) }
+      ], async (v) => {
+        const name = v.name.trim();
+        const price = parseFloat(String(v.price).replace(',', '.'));
+        const vat = parseFloat(String(v.vat).replace(',', '.'));
+        if (!name || isNaN(price) || price < 0 || isNaN(vat) || vat < 0) { alert('Έλεγξε το όνομα, την τιμή και το ΦΠΑ.'); return false; }
+        const upd = { name, category: v.category, price, vat, allowedGroups: v.groups };
+        if (v.category !== p.category) upd.sortOrder = products.filter(x => x.category === v.category).length;
+        await updateDoc(doc(db, "pos_products", firestoreId), upd);
+      });
+    };
+
+    window.saveBusiness = async function() {
+      const busName = document.getElementById('bus-name').value;
+      try {
+        await setDoc(doc(db, "pos_settings", "general"), { bus_name: busName }, { merge: true });
+        alert('Αποθηκεύτηκε στο Cloud!');
+      } catch(e) { console.error(e); }
+    };
+
+    // ---------- Χρήστες & Ρόλοι ----------
+    const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    let usersList = [];
+
+    onSnapshot(collection(db, "pos_users"), (snapshot) => {
+      usersList = [];
+      snapshot.forEach(d => usersList.push({ ...d.data(), uid: d.id }));
+      usersList.sort((a, b) => (a.email || '').localeCompare(b.email || ''));
+      renderUsers();
+    }, (error) => console.error("Error loading users:", error));
+
+    window.renderUsers = function() {
+      const el = document.getElementById('users-list');
+      if (usersList.length === 0) {
+        el.innerHTML = '<div class="empty">Δεν υπάρχουν χρήστες ακόμα</div>';
+        return;
+      }
+      el.innerHTML = usersList.map(u => {
+        const isMe = u.uid === me.uid;
+        const inactive = u.active === false;
+        const options = Object.entries(ROLE_LABELS).map(([k, v]) => `<option value="${k}" ${u.role === k ? 'selected' : ''}>${v}</option>`).join('');
+        return `
+          <div class="user-row ${inactive ? 'inactive' : ''}">
+            <div>
+              <strong>${esc(u.name) || '—'}</strong>
+              ${isMe ? '<span class="badge">εσύ</span>' : ''}
+              ${inactive ? '<span class="badge badge-warning">Ανενεργός</span>' : ''}
+              <div class="muted" style="font-size:0.85rem;">${esc(u.email)}</div>
+            </div>
+            <div class="user-actions">
+              <select onchange="changeUserRole('${u.uid}', this.value)" ${isMe ? 'disabled' : ''} style="width:auto; min-width:160px;">${options}</select>
+              <select onchange="setUserTheme('${u.uid}', this.value)" title="Theme χρήστη" style="width:auto; min-width:130px;">${themeOptions(u.theme)}</select>
+              ${u.role === 'base' ? `<select onchange="setPrintMode('${u.uid}', this.value)" title="Τρόπος εκτύπωσης παραγγελίας" style="width:auto; min-width:150px;">
+                <option value="prices" ${u.printMode !== 'noprices' ? 'selected' : ''}>🖨️ Με τιμές</option>
+                <option value="noprices" ${u.printMode === 'noprices' ? 'selected' : ''}>🖨️ Χωρίς τιμές</option>
+              </select>` : ''}
+              <button class="btn btn-ghost btn-sm" onclick="resetUserPassword('${esc(u.email)}')">🔑 Επαναφορά κωδικού</button>
+              ${isMe ? '' : `<button class="btn btn-sm ${inactive ? 'btn-success' : 'btn-danger'}" onclick="toggleUserActive('${u.uid}', ${inactive})">${inactive ? 'Ενεργοποίηση' : 'Απενεργοποίηση'}</button>`}
+            </div>
+          </div>`;
+      }).join('');
+    };
+
+    const themeOptions = (current) => Object.entries(THEMES).map(([k, v]) => `<option value="${k}" ${(current || 'light') === k ? 'selected' : ''}>${v}</option>`).join('');
+
+    // Theme ανά χρήστη (εφαρμόζεται ζωντανά στη συσκευή του)
+    window.setUserTheme = async function(uid, theme) {
+      try {
+        await updateDoc(doc(db, "pos_users", uid), { theme });
+      } catch (e) { console.error(e); alert('Σφάλμα αποθήκευσης theme.'); }
+    };
+
+    window.addUser = async function() {
+      const name = document.getElementById('user-name').value.trim();
+      const email = document.getElementById('user-email').value.trim();
+      const password = document.getElementById('user-password').value;
+      const role = document.getElementById('user-role').value;
+      if (!email || password.length < 6) return alert('Συμπλήρωσε email και κωδικό (τουλάχιστον 6 χαρακτήρες).');
+
+      const btn = document.getElementById('add-user-btn');
+      btn.disabled = true;
+      let secondaryApp = null;
+      try {
+        // Δεύτερη εφαρμογή Firebase, ώστε ο admin να μην αποσυνδεθεί όταν φτιάχνει τον νέο λογαριασμό
+        secondaryApp = initializeApp(firebaseConfig, 'secondary-' + Date.now());
+        const secAuth = getAuth(secondaryApp);
+        const cred = await createUserWithEmailAndPassword(secAuth, email, password);
+        await fbSignOut(secAuth);
+        await setDoc(doc(db, "pos_users", cred.user.uid), { email, name, role, active: true, createdAt: Date.now() });
+        ['user-name', 'user-email', 'user-password'].forEach(id => document.getElementById(id).value = '');
+        alert('Ο χρήστης δημιουργήθηκε.');
+      } catch (e) {
+        console.error(e);
+        const msgs = {
+          'auth/email-already-in-use': 'Υπάρχει ήδη λογαριασμός με αυτό το email.',
+          'auth/invalid-email': 'Μη έγκυρο email.',
+          'auth/weak-password': 'Ο κωδικός είναι πολύ αδύναμος (τουλάχιστον 6 χαρακτήρες).',
+          'permission-denied': 'Ο λογαριασμός δημιουργήθηκε αλλά δεν αποθηκεύτηκε ο ρόλος (έλεγξε τα Firestore rules).'
+        };
+        alert(msgs[e.code] || 'Σφάλμα δημιουργίας χρήστη.');
+      } finally {
+        if (secondaryApp) { try { await deleteApp(secondaryApp); } catch (_) {} }
+        btn.disabled = false;
+      }
+    };
+
+    window.changeUserRole = async function(uid, role) {
+      if (uid === me.uid) return;
+      try {
+        await updateDoc(doc(db, "pos_users", uid), { role });
+      } catch (e) { console.error(e); alert('Σφάλμα αλλαγής ρόλου.'); }
+    };
+
+    // Εκτύπωση παραγγελίας ανά Base: με τιμές ή χωρίς τιμές
+    window.setPrintMode = async function(uid, mode) {
+      try {
+        await updateDoc(doc(db, "pos_users", uid), { printMode: mode === 'noprices' ? 'noprices' : 'prices' });
+      } catch (e) { console.error(e); alert('Σφάλμα αποθήκευσης τρόπου εκτύπωσης.'); }
+    };
+
+    window.toggleUserActive = async function(uid, activate) {
+      if (uid === me.uid) return;
+      if (!activate && !confirm('Να απενεργοποιηθεί ο χρήστης; Δεν θα μπορεί πλέον να συνδεθεί.')) return;
+      try {
+        await updateDoc(doc(db, "pos_users", uid), { active: activate });
+      } catch (e) { console.error(e); alert('Σφάλμα ενημέρωσης χρήστη.'); }
+    };
+
+    window.resetUserPassword = async function(email) {
+      if (!confirm('Να σταλεί email επαναφοράς κωδικού στο ' + email + ';')) return;
+      try {
+        await sendPasswordResetEmail(auth, email);
+        alert('Στάλθηκε email επαναφοράς κωδικού.');
+      } catch (e) { console.error(e); alert('Σφάλμα αποστολής email.'); }
+    };
+
+    renderAll();
+  </script>
+</body>
+</html>

@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#4f46e5">
+  <title>PDA - Παραγγελιοληψία (Cloud)</title>
+  <link rel="stylesheet" href="style.css">
+  <style>html { visibility: hidden; }</style>
+</head>
+<body class="pda-body">
+
+  <div class="pda-header">
+    <div class="pda-title-wrap">
+      <h1>📱 Παραγγελιοληψία</h1>
+      <button class="last-order-btn" type="button" title="Τελευταία παραγγελία" aria-label="Τελευταία παραγγελία" onclick="window.openLastOrder()">🧾</button>
+    </div>
+  </div>
+
+  <div class="mobile-section">
+    <h3 class="section-title"><span class="step-num">1</span> Πελάτης / Τραπέζι</h3>
+    <div class="row">
+      <div class="combo">
+        <input type="text" id="customer-input" placeholder="🔍 Πληκτρολόγησε για αναζήτηση..." autocomplete="off" autocapitalize="off" spellcheck="false">
+        <button type="button" id="customer-clear" class="combo-clear" aria-label="Καθαρισμός">✕</button>
+        <div id="customer-results" class="combo-results"></div>
+      </div>
+      <button class="btn btn-ghost" onclick="quickAddCustomer()">+ Νέος</button>
+    </div>
+  </div>
+
+  <div class="mobile-section">
+    <h3 class="section-title"><span class="step-num">2</span> Κατάλογος</h3>
+    <div id="cat-tabs" class="cat-tabs"></div>
+    <div id="product-list" class="product-list"></div>
+  </div>
+
+  <div class="mobile-section">
+    <h3 class="section-title"><span class="step-num">3</span> Καλάθι Παραγγελίας</h3>
+    <ul id="cart-items" class="cart-list"></ul>
+    <div class="cart-total-row">
+      <span>Σύνολο</span>
+      <span class="amount"><span id="cart-total">0.00</span>€</span>
+    </div>
+    <button class="btn btn-success btn-lg btn-block" onclick="sendOrder()">🚀 Αποστολή Παραγγελίας</button>
+  </div>
+
+  <div id="mod-modal" class="modal">
+    <div class="modal-content">
+      <h3 id="mod-prod-title" class="modal-title">Τροποποιητές</h3>
+      <div id="mod-groups-container"></div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost btn-lg" onclick="closeModal()">Ακύρωση</button>
+        <button class="btn btn-success btn-lg" onclick="confirmAddWithMods()">Προσθήκη</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Τελευταία παραγγελία που έστειλε ο χρήστης -->
+  <div id="last-modal" class="modal">
+    <div class="modal-content">
+      <h3 class="modal-title">🧾 Τελευταία παραγγελία</h3>
+      <div id="last-order-body"></div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost btn-lg" onclick="window.closeLastOrder()">Κλείσιμο</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+    import { requireRole } from "./auth.js";
+    import { getFirestore, collection, addDoc, doc, onSnapshot, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyCW2zewf0DdRv-E_lQb9dznRwocu_qa38o",
+      authDomain: "order-6014b.firebaseapp.com",
+      projectId: "order-6014b",
+      storageBucket: "order-6014b.firebasestorage.app",
+      messagingSenderId: "656642189339",
+      appId: "1:656642189339:web:bb8bf9745f8e44c276b0be",
+      measurementId: "G-N16YS8TW0S"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+
+    // Μόνο συνδεδεμένοι χρήστες με σωστό ρόλο
+    const me = await requireRole(['pda', 'admin']);
+    const myName = me.name || me.email || 'PDA';
+
+    const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    // Αναζήτηση χωρίς τόνους / κεφαλαία / τελικό ς
+    const norm = (s) => String(s ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/ς/g, 'σ').toLowerCase();
+
+    window.cart = [];
+    window.selectedCategory = "Όλα";
+    window.tempProduct = null;
+    window.selectedCustomer = '';
+
+    window.customers = ['Τραπέζι 1'];
+    window.categories = ['Καφέδες', 'Φαγητό'];
+    window.modifierGroups = [];
+    window.products = [];
+
+    onSnapshot(doc(db, "pos_settings", "general"), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        if (data.customers) customers = data.customers;
+        if (data.categories) categories = data.categories;
+        // Αν ο επιλεγμένος πελάτης αφαιρέθηκε από τον διαχειριστή, καθαρίζει η επιλογή
+        if (selectedCustomer && !customers.includes(selectedCustomer)) clearCustomer();
+        init();
+        if (comboOpen()) renderCustomerResults();
+      }
+    });
+
+    onSnapshot(collection(db, "pos_mod_groups"), (snapshot) => {
+      modifierGroups = [];
+      snapshot.forEach(d => modifierGroups.push({ ...d.data(), firestoreId: d.id }));
+    });
+
+    onSnapshot(collection(db, "pos_products"), (snapshot) => {
+      products = [];
+      snapshot.forEach(d => products.push({ ...d.data(), firestoreId: d.id }));
+      init();
+    });
+
+    // =====================================================
+    // Αναζήτηση πελάτη / τραπεζιού (πληκτρολογώντας)
+    // =====================================================
+    const custInput = document.getElementById('customer-input');
+    const custResults = document.getElementById('customer-results');
+    const custClear = document.getElementById('customer-clear');
+    let activeIdx = -1;
+    let shownItems = [];
+
+    function comboOpen() { return custResults.classList.contains('open'); }
+    function closeCombo() { custResults.classList.remove('open'); activeIdx = -1; }
+
+    function selectCustomer(name) {
+      window.selectedCustomer = name;
+      custInput.value = name;
+      custClear.style.display = 'block';
+      closeCombo();
+      custInput.blur();
+    }
+
+    function clearCustomer() {
+      window.selectedCustomer = '';
+      custInput.value = '';
+      custClear.style.display = 'none';
+    }
+
+    function renderCustomerResults() {
+      const q = norm(custInput.value.trim());
+      shownItems = customers.filter(c => !q || norm(c).includes(q));
+      let html = shownItems.map((c, i) =>
+        `<div class="combo-item ${i === activeIdx ? 'active' : ''}" data-i="${i}">${esc(c)}</div>`
+      ).join('');
+      const typed = custInput.value.trim();
+      if (shownItems.length === 0) {
+        html = '<div class="combo-empty">Δεν βρέθηκε πελάτης / τραπέζι.</div>';
+      }
+      if (typed && !customers.some(c => norm(c) === norm(typed))) {
+        html += `<div class="combo-item combo-add" data-add="1">➕ Προσθήκη «${esc(typed)}»</div>`;
+      }
+      custResults.innerHTML = html;
+      custResults.classList.add('open');
+    }
+
+    custInput.addEventListener('focus', () => { custInput.select(); renderCustomerResults(); });
+    custInput.addEventListener('input', () => {
+      // Όποια αλλαγή στο κείμενο ακυρώνει την προηγούμενη επιλογή
+      window.selectedCustomer = '';
+      custClear.style.display = custInput.value ? 'block' : 'none';
+      activeIdx = -1;
+      renderCustomerResults();
+    });
+    custInput.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowDown') { e.preventDefault(); activeIdx = Math.min(activeIdx + 1, shownItems.length - 1); renderCustomerResults(); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); activeIdx = Math.max(activeIdx - 1, 0); renderCustomerResults(); }
+      else if (e.key === 'Enter') {
+        e.preventDefault();
+        if (activeIdx >= 0 && shownItems[activeIdx]) selectCustomer(shownItems[activeIdx]);
+        else if (shownItems.length === 1) selectCustomer(shownItems[0]);
+        else {
+          const exact = customers.find(c => norm(c) === norm(custInput.value.trim()));
+          if (exact) selectCustomer(exact);
+        }
+      } else if (e.key === 'Escape') closeCombo();
+    });
+    // pointerdown ώστε να προλαβαίνει το blur του πεδίου (σημαντικό σε κινητά)
+    custResults.addEventListener('pointerdown', (e) => {
+      const item = e.target.closest('.combo-item');
+      if (!item) return;
+      e.preventDefault();
+      if (item.dataset.add) window.quickAddCustomer(custInput.value.trim(), true);
+      else selectCustomer(shownItems[Number(item.dataset.i)]);
+    });
+    custClear.addEventListener('click', () => { clearCustomer(); custInput.focus(); });
+    document.addEventListener('pointerdown', (e) => {
+      if (!e.target.closest('.combo')) {
+        closeCombo();
+        // Αν έμεινε κείμενο που ταιριάζει ακριβώς σε πελάτη, επιλέγεται αυτόματα
+        if (!selectedCustomer && custInput.value.trim()) {
+          const exact = customers.find(c => norm(c) === norm(custInput.value.trim()));
+          if (exact) { window.selectedCustomer = exact; custInput.value = exact; }
+        }
+      }
+    });
+
+    window.quickAddCustomer = async function(prefill, skipPrompt) {
+      const name = (skipPrompt ? prefill : prompt('Νέος πελάτης / τραπέζι:', prefill || ''))?.trim();
+      if (!name) return;
+      const existing = customers.find(c => norm(c) === norm(name));
+      if (existing) { selectCustomer(existing); return; }
+      customers.push(name);
+      try {
+        await setDoc(doc(db, "pos_settings", "general"), { customers: customers }, { merge: true });
+        selectCustomer(name);
+      } catch (e) {
+        console.error(e);
+        customers = customers.filter(c => c !== name);
+        alert('Δεν ήταν δυνατή η προσθήκη.');
+      }
+    };
+
+    // =====================================================
+    // Κατάλογος
+    // =====================================================
+    window.init = function() {
+      const cTabs = document.getElementById('cat-tabs');
+      cTabs.innerHTML = ['Όλα', ...categories].map(c => `<button class="cat-btn ${c === selectedCategory ? 'active' : ''}" onclick="window.selectCategory('${c}')">${c}</button>`).join('');
+
+      const filtered = (selectedCategory === 'Όλα') ? products : products.filter(p => p.category === selectedCategory);
+      document.getElementById('product-list').innerHTML = filtered.length === 0
+        ? '<div class="empty"><span class="empty-icon">🍽️</span>Δεν υπάρχουν προϊόντα</div>'
+        : filtered.map(p => `
+        <div class="product-row">
+          <div>
+            <div class="product-name">${p.name}</div>
+            <div class="product-price">${p.price.toFixed(2)}€</div>
+          </div>
+          <button class="btn btn-icon" onclick="window.openModifierModal('${p.firestoreId || p.id}')">+</button>
+        </div>
+      `).join('');
+    };
+
+    window.selectCategory = function(cat) {
+      window.selectedCategory = cat;
+      window.init();
+    };
+
+    window.openModifierModal = function(productId) {
+      tempProduct = products.find(p => String(p.firestoreId) === String(productId) || String(p.id) === String(productId));
+      if (!tempProduct) return;
+
+      let productGroupIds = tempProduct.allowedGroups || [];
+      let groups = [];
+
+      if (productGroupIds.length > 0) {
+        groups = modifierGroups.filter(g => productGroupIds.some(id => String(id) === String(g.id) || String(id) === String(g.firestoreId)));
+      }
+
+      if (groups.length === 0) {
+        groups = modifierGroups;
+      }
+
+      if (groups.length === 0 || !groups.some(g => g.items && g.items.length > 0)) {
+        addToCart(tempProduct.name, tempProduct.price, tempProduct.vat || 13, []);
+      } else {
+        document.getElementById('mod-prod-title').innerText = tempProduct.name;
+        const container = document.getElementById('mod-groups-container');
+
+        container.innerHTML = groups.map(g => {
+          if (!g.items || g.items.length === 0) return '';
+          let itemsHtml = g.items.map(item => {
+            const inputType = g.type === 'single' ? 'radio' : 'checkbox';
+            return `<label class="check"><input type="${inputType}" name="group_${g.id || g.firestoreId}" value="${item.id}" data-name="${item.name}" data-price="${item.price}"> <span>${item.name}</span> ${item.price > 0 ? '<span class="price">+' + item.price.toFixed(2) + '€</span>' : ''}</label>`;
+          }).join('');
+
+          return `<div class="mod-group">
+            <div class="mod-group-title">${g.name} <small>(${g.type === 'single' ? 'Μονή επιλογή' : 'Πολλαπλή επιλογή'})</small></div>
+            <div>${itemsHtml}</div>
+          </div>`;
+        }).join('');
+
+        document.getElementById('mod-modal').style.display = 'flex';
+      }
+    };
+
+    window.confirmAddWithMods = function() {
+      let chosenMods = [];
+      let extraTotal = 0;
+
+      let productGroupIds = tempProduct.allowedGroups || [];
+      let groups = modifierGroups.filter(g => productGroupIds.some(id => String(id) === String(g.id) || String(id) === String(g.firestoreId)));
+      if (groups.length === 0) groups = modifierGroups;
+
+      for (let g of groups) {
+        if (g.type === 'single') {
+          const selectedRadio = document.querySelector(`input[name="group_${g.id || g.firestoreId}"]:checked`);
+          if (selectedRadio) {
+            let price = parseFloat(selectedRadio.dataset.price) || 0;
+            chosenMods.push(selectedRadio.dataset.name);
+            extraTotal += price;
+          }
+        } else {
+          const selectedCheckboxes = document.querySelectorAll(`input[name="group_${g.id || g.firestoreId}"]:checked`);
+          selectedCheckboxes.forEach(chk => {
+            chosenMods.push(chk.dataset.name);
+            extraTotal += parseFloat(chk.dataset.price) || 0;
+          });
+        }
+      }
+
+      addToCart(tempProduct.name, tempProduct.price + extraTotal, tempProduct.vat || 13, chosenMods);
+      closeModal();
+    };
+
+    window.closeModal = function() {
+      document.getElementById('mod-modal').style.display = 'none';
+    };
+
+    window.addToCart = function(name, price, vat, mods) {
+      window.cart.push({ name, price, vat, mods });
+      updateCart();
+    };
+
+    window.updateCart = function() {
+      const cList = document.getElementById('cart-items');
+      cList.innerHTML = '';
+      let total = 0;
+
+      if (window.cart.length === 0) {
+        cList.innerHTML = '<li style="justify-content:center; color:var(--text-muted); border-bottom:none;">Το καλάθι είναι άδειο</li>';
+      }
+
+      window.cart.forEach((item, index) => {
+        total += item.price;
+        let modsStr = item.mods && item.mods.length ? `<span class="cart-mods">↳ ${item.mods.join(', ')}</span>` : '';
+        cList.innerHTML += `<li>
+          <div style="flex:1;"><strong>${item.name}</strong>${modsStr}</div>
+          <strong>${item.price.toFixed(2)}€</strong>
+          <button class="cart-remove" onclick="window.removeCartItem(${index})">✕</button>
+        </li>`;
+      });
+      document.getElementById('cart-total').innerText = total.toFixed(2);
+    };
+
+    window.removeCartItem = function(index) {
+      window.cart.splice(index, 1);
+      window.updateCart();
+    };
+
+    // =====================================================
+    // Αποστολή παραγγελίας
+    // =====================================================
+    const LAST_KEY = 'pda_last_order_' + me.uid;
+    let lastOrder = null;
+    let unsubLast = null;
+
+    window.sendOrder = async function() {
+      const customer = window.selectedCustomer;
+      if (!customer) return alert('Επιλέξτε πελάτη από τη λίστα!');
+      if (window.cart.length === 0) return alert('Άδειο καλάθι!');
+
+      if (confirm("Είστε σίγουρος για την αποστολή της παραγγελίας;")) {
+        const orderData = {
+          id: Date.now(),
+          customer: customer,
+          items: window.cart,
+          total: window.cart.reduce((a, b) => a + b.price, 0),
+          status: 'Νέα',
+          kitchenStatus: 'Σε εξέλιξη',
+          timestamp: new Date().toLocaleTimeString('el-GR', { hour: '2-digit', minute: '2-digit' }),
+          pdaUid: me.uid,
+          pdaName: myName
+        };
+        try {
+          const ref = await addDoc(collection(db, "pos_orders"), orderData);
+          try { localStorage.setItem(LAST_KEY, JSON.stringify({ fid: ref.id, data: orderData })); } catch (_) {}
+          watchLastOrder();
+          window.cart = [];
+          window.updateCart();
+          alert('Η παραγγελία στάλθηκε στο Cloud!');
+        } catch (e) {
+          console.error("Error sending order: ", e);
+          alert('Σφάλμα αποστολής παραγγελίας.');
+        }
+      }
+    };
+
+    // =====================================================
+    // Τελευταία παραγγελία (διακριτικό κουμπί 🧾)
+    // =====================================================
+    function readCachedLast() {
+      try { return JSON.parse(localStorage.getItem(LAST_KEY) || 'null'); } catch (_) { return null; }
+    }
+
+    // Εμφανίζει αμέσως την αποθηκευμένη παραγγελία και, αν γίνεται, την παρακολουθεί ζωντανά
+    // ώστε να φαίνεται πότε την έκανε έτοιμη η κουζίνα ή την έκλεισε το ταμείο.
+    function watchLastOrder() {
+      if (unsubLast) { unsubLast(); unsubLast = null; }
+      const cached = readCachedLast();
+      lastOrder = cached && cached.data ? cached.data : null;
+      renderLastOrder();
+      if (!cached || !cached.fid) return;
+      unsubLast = onSnapshot(doc(db, "pos_orders", cached.fid), (snap) => {
+        if (snap.exists()) {
+          lastOrder = snap.data();
+          try { localStorage.setItem(LAST_KEY, JSON.stringify({ fid: cached.fid, data: lastOrder })); } catch (_) {}
+        }
+        renderLastOrder();
+      }, (err) => console.warn('Live ενημέρωση τελευταίας παραγγελίας μη διαθέσιμη:', err));
+    }
+
+    function renderLastOrder() {
+      const body = document.getElementById('last-order-body');
+      if (!lastOrder) {
+        body.innerHTML = '<div class="empty"><span class="empty-icon">🧾</span>Δεν έχεις στείλει ακόμη παραγγελία από αυτή τη συσκευή.</div>';
+        return;
+      }
+      const o = lastOrder;
+      const d = new Date(o.id);
+      const when = isNaN(d.getTime()) ? (o.timestamp || '') : d.toLocaleString('el-GR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+      const ready = o.kitchenStatus === 'Έτοιμο';
+      const done = o.status === 'Ολοκληρωμένη';
+      const items = (o.items || []).map(i => `
+        <li>
+          <span><strong>${esc(i.name)}</strong>${i.mods && i.mods.length ? `<span class="mods">↳ ${esc(i.mods.join(', '))}</span>` : ''}</span>
+          <strong>${Number(i.price || 0).toFixed(2)}€</strong>
+        </li>`).join('');
+
+      body.innerHTML = `
+        <div class="last-order-meta"><span class="muted">Πελάτης / Τραπέζι</span><strong>${esc(o.customer)}</strong></div>
+        <div class="last-order-meta"><span class="muted">Αποστολή</span><strong>${esc(when)}</strong></div>
+        <div class="last-order-meta"><span class="muted">Κουζίνα</span><span class="badge ${ready ? 'badge-success' : 'badge-warning'}">${ready ? '✅ Έτοιμο' : '⏳ Σε εξέλιξη'}</span></div>
+        <div class="last-order-meta"><span class="muted">Ταμείο</span><span class="badge ${done ? 'badge-success' : ''}">${done ? 'Ολοκληρώθηκε' : 'Ενεργή'}</span></div>
+        <ul class="last-order-items">${items}</ul>
+        <div class="cart-total-row"><span>Σύνολο</span><span class="amount">${Number(o.total || 0).toFixed(2)}€</span></div>
+      `;
+    }
+
+    window.openLastOrder = function() {
+      renderLastOrder();
+      document.getElementById('last-modal').style.display = 'flex';
+    };
+    window.closeLastOrder = function() {
+      document.getElementById('last-modal').style.display = 'none';
+    };
+
+    window.init();
+    window.updateCart();
+    watchLastOrder();
+  </script>
+</body>
+</html>
